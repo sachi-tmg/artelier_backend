@@ -1,5 +1,9 @@
 require("dotenv").config();
 
+const https = require('https');
+const fs = require('fs');
+const path = require('path');
+
 const express = require("express");
 const connectDB = require("./config/db");
 const user_router = require("./routes/user_route");
@@ -18,8 +22,13 @@ const app = express();
 
 connectDB();
 
+const httpsOptions = {
+  key: fs.readFileSync('C:/Users/sachi/certs/localhost-key.pem'),
+  cert: fs.readFileSync('C:/Users/sachi/certs/localhost-cert.pem')
+};
+
 const corsOptions = {
-    origin: "http://localhost:5173",
+    origin: "https://localhost:5173",
     credentials: true,
     optionSuccessStatus: 200,
 };
@@ -45,8 +54,9 @@ app.use('/api/contact', contact_route);
 app.use("/public", express.static('public'));
 
 const port = process.env.PORT || 3000;
-app.listen(port, () => {
-    console.log(`Server running at http://localhost:${port}`);
+const server = https.createServer(httpsOptions, app).listen(port, () => {
+    console.log(`Server running at HTTPS://localhost:${port}`); // Changed to HTTPS
 });
+
 
 module.exports = app;

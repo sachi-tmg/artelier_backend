@@ -63,7 +63,7 @@ router.post("/verify-esewa", async (req, res) => {
     console.log("eSewa verification endpoint hit");
 
     const { data, paymentId } = req.query; // `paymentId` here is crucial for finding the correct record
-    const FRONTEND_ORIGIN = process.env.FRONTEND_URL || "http://localhost:5173";
+    const FRONTEND_ORIGIN = process.env.FRONTEND_URL || "https://localhost:5173";
 
     if (!data) {
         console.error("Missing eSewa data parameter");
