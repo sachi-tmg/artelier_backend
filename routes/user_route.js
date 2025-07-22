@@ -17,6 +17,8 @@ const {
   resetPassword,
   sendOtp,
   verifyOtp,
+  verifyEmail,
+  resendVerificationEmail,
   // resendOtp
 } = require("../controllers/user_controller");
 const {
@@ -49,6 +51,9 @@ router.post('/auth/forgot-password', sendPasswordResetEmail);
 router.post('/auth/reset-password', resetPassword);
 router.post('/auth/send-otp', sendOtp);
 router.post('/verify-otp', verifyOtp);
+router.get('/verify-email', verifyEmail);
+router.post("/resend-verification", resendVerificationEmail);
+
 // router.post('/resend-otp', resendOtp);
 
 module.exports = router;

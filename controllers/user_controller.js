@@ -8,70 +8,135 @@ const mongoose = require('mongoose');
 const nodemailer = require('nodemailer');
 const pendingSignups = {};
 
+// const register = async (req, res) => {
+//     try {
+//         const { fullName, email, password } = req.body;
+
+//         // --- 1. Server-side Input Validation ---
+//         // Basic checks (for full validation use a library like express-validator)
+//         if (!fullName || typeof fullName !== 'string' || fullName.trim().length < 2) {
+//             return res.status(400).json({ message: "Full name is required and must be at least 2 characters." });
+//         }
+//         if (!email || typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+//             return res.status(400).json({ message: "A valid email is required." });
+//         }
+//         if (!password || typeof password !== 'string' || password.length < 8) {
+//             return res.status(400).json({ message: "Password must be at least 8 characters long." });
+//         }
+//         // Add more password complexity checks here if needed (e.g., regex for uppercase, lowercase, number, symbol)
+//         // For example: if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(password)) { ... }
+
+
+//         // --- 2. Check if email already exists ---
+//         const existingUser = await User.findOne({ email });
+//         if (existingUser) {
+//             return res.status(409).json({ message: "Email already exists. Please use a different email or login." }); // 409 Conflict is more appropriate here
+//         }
+
+//         // --- 3. Hash the password ---
+//         const hashedPassword = await bcrypt.hash(password, 10); // 10 is the salt rounds
+
+//         // --- 4. Generate unique username ---
+//         const username = await generateUsername(email);
+
+//         // --- 5. Create new user instance ---
+//         const newUser = new User({
+//             fullName,
+//             email,
+//             password: hashedPassword,
+//             username: username,
+//             // Add any other default fields (e.g., role: 'user', createdAt: new Date())
+//         });
+
+//         // --- 6. Save user to database ---
+//         await newUser.save();
+
+//         // --- 8. Prepare and send response ---
+//         const userResponse = newUser.toObject(); // Convert Mongoose document to plain JS object
+//         delete userResponse.password; // Remove sensitive data
+//         delete userResponse.__v; // Remove Mongoose version key if not needed by client
+
+//         res.status(201).json({
+//             success: true,
+//             message: "User registered successfully!",
+//             user: userResponse,
+//             // regularUsers // Remove this if it's not defined and meant to be sent
+//         });
+
+//     } catch (e) {
+//         // Handle specific Mongoose errors (e.g., unique constraint violation for username if it slipped past generateUsername)
+//         if (e.code === 11000) { // MongoDB duplicate key error code
+//             return res.status(409).json({ message: "A user with this username already exists. Please try another.", error: e.message });
+//         }
+//         console.error("Registration error:", e); // Log the full error for debugging
+//         res.status(500).json({ message: "Server error during registration.", error: e.message });
+//     }
+// };
+
+
 const register = async (req, res) => {
-    try {
-        const { fullName, email, password } = req.body;
+  try {
+    const { fullName, email, password } = req.body;
 
-        // --- 1. Server-side Input Validation ---
-        // Basic checks (for full validation use a library like express-validator)
-        if (!fullName || typeof fullName !== 'string' || fullName.trim().length < 2) {
-            return res.status(400).json({ message: "Full name is required and must be at least 2 characters." });
-        }
-        if (!email || typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-            return res.status(400).json({ message: "A valid email is required." });
-        }
-        if (!password || typeof password !== 'string' || password.length < 8) {
-            return res.status(400).json({ message: "Password must be at least 8 characters long." });
-        }
-        // Add more password complexity checks here if needed (e.g., regex for uppercase, lowercase, number, symbol)
-        // For example: if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(password)) { ... }
+    // Basic validation
+    if (!fullName || fullName.trim().length < 2)
+      return res.status(400).json({ message: "Full name too short." });
 
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+      return res.status(400).json({ message: "Invalid email address." });
 
-        // --- 2. Check if email already exists ---
-        const existingUser = await User.findOne({ email });
-        if (existingUser) {
-            return res.status(409).json({ message: "Email already exists. Please use a different email or login." }); // 409 Conflict is more appropriate here
-        }
+    if (!password || password.length < 8)
+      return res.status(400).json({ message: "Password must be 8+ chars." });
 
-        // --- 3. Hash the password ---
-        const hashedPassword = await bcrypt.hash(password, 10); // 10 is the salt rounds
-
-        // --- 4. Generate unique username ---
-        const username = await generateUsername(email);
-
-        // --- 5. Create new user instance ---
-        const newUser = new User({
-            fullName,
-            email,
-            password: hashedPassword,
-            username: username,
-            // Add any other default fields (e.g., role: 'user', createdAt: new Date())
-        });
-
-        // --- 6. Save user to database ---
-        await newUser.save();
-
-        // --- 8. Prepare and send response ---
-        const userResponse = newUser.toObject(); // Convert Mongoose document to plain JS object
-        delete userResponse.password; // Remove sensitive data
-        delete userResponse.__v; // Remove Mongoose version key if not needed by client
-
-        res.status(201).json({
-            success: true,
-            message: "User registered successfully!",
-            user: userResponse,
-            // regularUsers // Remove this if it's not defined and meant to be sent
-        });
-
-    } catch (e) {
-        // Handle specific Mongoose errors (e.g., unique constraint violation for username if it slipped past generateUsername)
-        if (e.code === 11000) { // MongoDB duplicate key error code
-            return res.status(409).json({ message: "A user with this username already exists. Please try another.", error: e.message });
-        }
-        console.error("Registration error:", e); // Log the full error for debugging
-        res.status(500).json({ message: "Server error during registration.", error: e.message });
+    // Check existing user
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(409).json({ message: "Email already registered." });
     }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const username = await generateUsername(email);
+    const verificationToken = crypto.randomBytes(20).toString("hex");
+    const verificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+    const newUser = new User({
+      fullName,
+      email,
+      password: hashedPassword,
+      username,
+      emailVerificationToken: verificationToken,
+      emailVerificationExpires: verificationExpires,
+      isVerified: false
+    });
+
+    const verificationUrl = `${process.env.FRONTEND_URL}/verify-email?token=${verificationToken}&email=${encodeURIComponent(email)}`;
+
+    try {
+      await sendVerificationEmail(email, verificationUrl); // ✉️ Send first
+    } catch (emailError) {
+      console.error("❌ Email failed to send:", emailError.message);
+      return res.status(500).json({
+        message: "Failed to send verification email. Please try again later."
+      });
+    }
+
+    await newUser.save(); // ✅ Save only after email sent
+
+    return res.status(201).json({
+      success: true,
+      message: "Verification email sent. Please check your inbox to complete registration."
+    });
+
+  } catch (err) {
+    console.error("🚨 Registration Error:", err.message);
+    return res.status(500).json({
+      message: "Server error during registration.",
+      error: err.message
+    });
+  }
 };
+
+
 
 const generateUsername = async (email) => {
     let username = email.split("@")[0];
@@ -82,6 +147,128 @@ const generateUsername = async (email) => {
 
     return username;
 }
+
+const sendVerificationEmail = async (email, verificationUrl) => {
+  try {
+    const transporter = nodemailer.createTransport({
+      host: process.env.EMAIL_HOST,
+      port: process.env.EMAIL_PORT,
+      secure: process.env.EMAIL_SECURE === 'true',
+      auth: {
+      user: process.env.EMAIL_USER,
+      pass: process.env.EMAIL_PASS
+    }
+  });
+
+    const mailOptions = {
+      from: `"Artelier" <${process.env.EMAIL_FROM}>`,
+      to: email,
+      subject: "Verify Your Artelier Account",
+      html: `
+        <div style="font-family: Arial, sans-serif;">
+          <h2>Please verify your email</h2>
+          <p>Click below to complete your registration:</p>
+          <a href="${verificationUrl}" style="...">Verify Email</a>
+          <p>Or copy this link: ${verificationUrl}</p>
+        </div>
+      `
+    };
+
+    const info = await transporter.sendMail(mailOptions);
+    console.log(`Verification email sent to ${email}:`, info.messageId);
+    return true;
+  } catch (err) {
+    console.error("Failed to send verification email:", err);
+    throw new Error("Failed to send verification email");
+  }
+};
+
+const verifyEmail = async (req, res) => {
+  try {
+    const { token, email } = req.query;
+
+    // 1. Check if required fields exist
+    if (!token || !email) {
+      return res.status(400).json({ 
+        success: false,
+        message: "Verification token and email are required" 
+      });
+    }
+
+    // 2. Find user by email (regardless of token)
+    const user = await User.findOne({ email });
+    
+    if (!user) {
+      return res.status(404).json({ 
+        success: false,
+        message: "User not found" 
+      });
+    }
+
+    // 3. Check if already verified
+    if (user.isVerified) {
+      return res.status(200).json({ 
+        success: true,
+        message: "Email already verified. You can login." 
+      });
+    }
+
+    // 4. Verify token only if not already verified
+    if (user.emailVerificationToken !== token) {
+      return res.status(400).json({ 
+        success: false,
+        message: "Invalid verification token" 
+      });
+    }
+
+    if (user.emailVerificationExpires < Date.now()) {
+      return res.status(400).json({ 
+        success: false,
+        message: "Verification link has expired" 
+      });
+    }
+
+    // 5. Mark as verified
+    user.isVerified = true;
+    user.emailVerificationToken = undefined;
+    user.emailVerificationExpires = undefined;
+    await user.save();
+
+    return res.status(200).json({ 
+      success: true,
+      message: "Email verified successfully. You can now login."
+    });
+
+  } catch (err) {
+    console.error("Email verification error:", err);
+    return res.status(500).json({ 
+      success: false,
+      message: "Failed to verify email" 
+    });
+  }
+};
+
+
+const resendVerificationEmail = async (req, res) => {
+  const { email } = req.body;
+  try {
+    const user = await User.findOne({ email });
+    if (!user) return res.status(404).json({ success: false, message: "User not found" });
+    if (user.isVerified) return res.status(400).json({ success: false, message: "Email already verified" });
+
+    // regenerate token
+    const token = crypto.randomBytes(20).toString("hex");
+    user.emailVerificationToken = token;
+    user.emailVerificationExpires = Date.now() + 3600000;
+    await user.save();
+
+    await sendVerificationEmail(user.email, token);
+    return res.status(200).json({ success: true, message: "Verification email resent" });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: "Error resending email" });
+  }
+};
+
 
 // Login API
 const login = async (req, res) => {
@@ -102,6 +289,10 @@ const login = async (req, res) => {
         if (!user) {
             // Using a generic message for security reasons
             return res.status(401).json({ message: "Invalid credentials." });
+        }
+
+        if (!user.isVerified) {
+          return res.status(403).json({ message: "Please verify your email before logging in." });
         }
 
         // --- 3. Validate the password ---
@@ -843,7 +1034,9 @@ module.exports = {
   sendPasswordResetEmail,
   resetPassword,
   sendOtp,
-  verifyOtp
+  verifyOtp,
+  verifyEmail,
+  resendVerificationEmail
 };
 
 

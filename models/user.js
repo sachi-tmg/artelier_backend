@@ -79,30 +79,35 @@ const userSchema = new mongoose.Schema({
         type: Date,
         default: null
     },
-    // In your User model, add:
-otp: String,
-otpExpires: Date,
-isVerified: { 
-    type: Boolean, 
-    default: false 
-},
-loggedInOnce: {
-    type: Boolean,
-    default: false
-},
-dateCreated: {
-        type: Date,
-        default: Date.now, 
+    emailVerificationToken: {
+        type: String,
+        default: null
     },
-  notificationPreferences: {
-    likes: { type: Boolean, default: true },
-    comments: { type: Boolean, default: true },
-    follows: { type: Boolean, default: true },
-    purchases: { type: Boolean, default: true },
-    commentReplies: { type: Boolean, default: true },
-    commentLikes: { type: Boolean, default: true }
-  }
-});
+    emailVerificationExpires: {
+        type: Date,
+        default: null
+    },
+    isVerified: { 
+        type: Boolean, 
+        default: false 
+    },
+    loggedInOnce: {
+        type: Boolean,
+        default: false
+    },
+    dateCreated: {
+            type: Date,
+            default: Date.now, 
+        },
+    notificationPreferences: {
+        likes: { type: Boolean, default: true },
+        comments: { type: Boolean, default: true },
+        follows: { type: Boolean, default: true },
+        purchases: { type: Boolean, default: true },
+        commentReplies: { type: Boolean, default: true },
+        commentLikes: { type: Boolean, default: true }
+    }
+    });
 
 const User = mongoose.model("users", userSchema);
 
