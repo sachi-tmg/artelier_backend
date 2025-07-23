@@ -15,10 +15,13 @@ const {
   uploadCover,
   sendPasswordResetEmail,
   resetPassword,
-  sendOtp,
-  verifyOtp,
+  sendSignupOtp,
+  verifySignupOtp,
   verifyEmail,
   resendVerificationEmail,
+  // setupMFA,
+  //   verifyMFA,
+  //   finalizeMFALogin
   // resendOtp
 } = require("../controllers/user_controller");
 const {
@@ -49,10 +52,13 @@ router.delete("/delete-account", verifyJWT, deleteAccount);
 router.post('/search-users', searchUsers); 
 router.post('/auth/forgot-password', sendPasswordResetEmail);
 router.post('/auth/reset-password', resetPassword);
-router.post('/auth/send-otp', sendOtp);
-router.post('/verify-otp', verifyOtp);
+router.post("/send-signup-otp", sendSignupOtp);
+router.post("/verify-signup-otp", verifySignupOtp);
 router.get('/verify-email', verifyEmail);
 router.post("/resend-verification", resendVerificationEmail);
+// router.post("/mfa/setup", verifyJWT, setupMFA);
+// router.post("/mfa/verify", verifyJWT, verifyMFA);
+// router.post("/mfa/finalize", finalizeMFALogin);
 
 // router.post('/resend-otp', resendOtp);
 

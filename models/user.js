@@ -31,7 +31,7 @@ const userSchema = new mongoose.Schema({
     },
     coverPicture: {
         type: String,
-        default: "http://localhost:3000/public/Covers/cover.png"
+        default: "https://localhost:3000/public/Covers/cover.png"
     },
     bio: {
         type: String,
@@ -72,8 +72,8 @@ const userSchema = new mongoose.Schema({
         default: []
     }],
     passwordResetToken: {
-    type: String,
-    default: null
+        type: String,
+        default: null
     },
     passwordResetExpires: {
         type: Date,
@@ -91,6 +91,17 @@ const userSchema = new mongoose.Schema({
         type: Boolean, 
         default: false 
     },
+    mfaEnabled: { type: Boolean, default: false },
+        mfaSecret: String,       
+        backupCodes: [          
+            {
+            code: String,
+            used: { type: Boolean, default: false }
+            }
+        ],
+    mfaOtp: String,
+    mfaOtpExpires: Date,
+
     loggedInOnce: {
         type: Boolean,
         default: false

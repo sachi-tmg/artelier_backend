@@ -7,72 +7,8 @@ const crypto = require('crypto');
 const mongoose = require('mongoose');
 const nodemailer = require('nodemailer');
 const pendingSignups = {};
-
-// const register = async (req, res) => {
-//     try {
-//         const { fullName, email, password } = req.body;
-
-//         // --- 1. Server-side Input Validation ---
-//         // Basic checks (for full validation use a library like express-validator)
-//         if (!fullName || typeof fullName !== 'string' || fullName.trim().length < 2) {
-//             return res.status(400).json({ message: "Full name is required and must be at least 2 characters." });
-//         }
-//         if (!email || typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-//             return res.status(400).json({ message: "A valid email is required." });
-//         }
-//         if (!password || typeof password !== 'string' || password.length < 8) {
-//             return res.status(400).json({ message: "Password must be at least 8 characters long." });
-//         }
-//         // Add more password complexity checks here if needed (e.g., regex for uppercase, lowercase, number, symbol)
-//         // For example: if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(password)) { ... }
-
-
-//         // --- 2. Check if email already exists ---
-//         const existingUser = await User.findOne({ email });
-//         if (existingUser) {
-//             return res.status(409).json({ message: "Email already exists. Please use a different email or login." }); // 409 Conflict is more appropriate here
-//         }
-
-//         // --- 3. Hash the password ---
-//         const hashedPassword = await bcrypt.hash(password, 10); // 10 is the salt rounds
-
-//         // --- 4. Generate unique username ---
-//         const username = await generateUsername(email);
-
-//         // --- 5. Create new user instance ---
-//         const newUser = new User({
-//             fullName,
-//             email,
-//             password: hashedPassword,
-//             username: username,
-//             // Add any other default fields (e.g., role: 'user', createdAt: new Date())
-//         });
-
-//         // --- 6. Save user to database ---
-//         await newUser.save();
-
-//         // --- 8. Prepare and send response ---
-//         const userResponse = newUser.toObject(); // Convert Mongoose document to plain JS object
-//         delete userResponse.password; // Remove sensitive data
-//         delete userResponse.__v; // Remove Mongoose version key if not needed by client
-
-//         res.status(201).json({
-//             success: true,
-//             message: "User registered successfully!",
-//             user: userResponse,
-//             // regularUsers // Remove this if it's not defined and meant to be sent
-//         });
-
-//     } catch (e) {
-//         // Handle specific Mongoose errors (e.g., unique constraint violation for username if it slipped past generateUsername)
-//         if (e.code === 11000) { // MongoDB duplicate key error code
-//             return res.status(409).json({ message: "A user with this username already exists. Please try another.", error: e.message });
-//         }
-//         console.error("Registration error:", e); // Log the full error for debugging
-//         res.status(500).json({ message: "Server error during registration.", error: e.message });
-//     }
-// };
-
+const speakeasy = require('speakeasy');
+const QRCode = require('qrcode');
 
 const register = async (req, res) => {
   try {
@@ -135,8 +71,6 @@ const register = async (req, res) => {
     });
   }
 };
-
-
 
 const generateUsername = async (email) => {
     let username = email.split("@")[0];
@@ -270,6 +204,80 @@ const resendVerificationEmail = async (req, res) => {
 };
 
 
+// // ======================
+// // MFA SETUP (STEP 1)
+// // ======================
+// const setupMFA = async (req, res) => {
+//   try {
+//     const user = await User.findById(req.user.id);
+    
+//     // Generate secret
+//     const secret = speakeasy.generateSecret({
+//       length: 20,
+//       name: `Artelier (${user.email})`,
+//       issuer: 'Artelier'
+//     });
+
+//     // Generate QR code
+//     const qrCodeUrl = await QRCode.toDataURL(secret.otpauth_url);
+
+//     // Save secret (don't enable yet)
+//     user.mfaSecret = secret.base32;
+//     await user.save();
+
+//     res.json({
+//       qrCodeUrl,       // Frontend shows this as <img src={qrCodeUrl}>
+//       manualCode: secret.base32, // For manual entry
+//       mfaEnabled: false
+//     });
+
+//   } catch (err) {
+//     res.status(500).json({ error: 'MFA setup failed' });
+//   }
+// };
+
+// // ======================
+// // VERIFY & ACTIVATE MFA (STEP 2)
+// // ======================
+// const verifyMFA = async (req, res) => {
+//   try {
+//     const { code } = req.body;
+//     const user = await User.findById(req.user.id);
+
+//     // Verify the code
+//     const verified = speakeasy.totp.verify({
+//       secret: user.mfaSecret,
+//       encoding: 'base32',
+//       token: code,
+//       window: 1 // Allows 30s time drift
+//     });
+
+//     if (!verified) {
+//       return res.status(400).json({ error: 'Invalid code' });
+//     }
+
+//     // Generate backup codes
+//     const backupCodes = Array.from({ length: 10 }, () => ({
+//       code: crypto.randomBytes(4).toString('hex').toUpperCase(),
+//       used: false
+//     }));
+
+//     // Enable MFA
+//     user.mfaEnabled = true;
+//     user.backupCodes = backupCodes;
+//     await user.save();
+
+//     res.json({
+//       success: true,
+//       backupCodes: backupCodes.map(b => b.code), // Show once!
+//       mfaEnabled: true
+//     });
+
+//   } catch (err) {
+//     res.status(500).json({ error: 'MFA activation failed' });
+//   }
+// };
+
 // Login API
 const login = async (req, res) => {
     try {
@@ -293,6 +301,21 @@ const login = async (req, res) => {
 
         if (!user.isVerified) {
           return res.status(403).json({ message: "Please verify your email before logging in." });
+        }
+
+        if (user.mfaEnabled) {
+          // Issue temp token requiring MFA
+          const tempToken = jwt.sign(
+            { userId: user._id, mfaPending: true },
+            process.env.JWT_SECRET,
+            { expiresIn: '5m' }
+          );
+          
+          return res.json({ 
+            mfaRequired: true,
+            tempToken,
+            message: 'Enter code from authenticator app'
+          });
         }
 
         // --- 3. Validate the password ---
@@ -348,6 +371,68 @@ const login = async (req, res) => {
         res.status(500).json({ message: "Server error during login.", error: e.message });
     }
 };
+
+// const finalizeMFALogin = async (req, res) => {
+//   try {
+//     const { tempToken, code } = req.body;
+    
+//     // Verify temp token
+//     const decoded = jwt.verify(tempToken, process.env.JWT_SECRET);
+//     if (!decoded.mfaPending) {
+//       throw new Error('Invalid token');
+//     }
+
+//     const user = await User.findById(decoded.userId);
+
+//     // Check backup codes first
+//     const backupCode = user.backupCodes.find(b => 
+//       !b.used && b.code === code
+//     );
+
+//     if (backupCode) {
+//       // Mark backup code as used
+//       backupCode.used = true;
+//       await user.save();
+//     } else {
+//       // Verify TOTP code
+//       const verified = speakeasy.totp.verify({
+//         secret: user.mfaSecret,
+//         encoding: 'base32',
+//         token: code,
+//         window: 1
+//       });
+//       if (!verified) {
+//         throw new Error('Invalid code');
+//       }
+//     }
+
+//     // Issue final token
+//     const accessToken = jwt.sign(
+//       {
+//         userId: user._id,
+//         email: user.email,
+//         username: user.username
+//       },
+//       process.env.JWT_SECRET,
+//       { expiresIn: '90d' }
+//     );
+
+//     res.json({ 
+//       success: true,
+//       token: accessToken,
+//       user: {
+//         userId: user._id,
+//         email: user.email,
+//         username: user.username,
+//         fullName: user.fullName,
+//         mfaEnabled: true
+//       }
+//     });
+
+//   } catch (err) {
+//     res.status(401).json({ error: 'MFA verification failed' });
+//   }
+// };
 
 
 const findProfile = async (req, res) => {
@@ -817,7 +902,7 @@ const sendPasswordResetEmail = async (req, res) => {
     await user.save();
 
     // Create reset URL (matches your frontend route)
-    const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/forgot-password?token=${resetToken}&email=${encodeURIComponent(user.email)}`;
+    const resetUrl = `${process.env.FRONTEND_URL || 'https://localhost:3000'}/forgot-password?token=${resetToken}&email=${encodeURIComponent(user.email)}`;
 
     // Create email transporter
     const transporter = nodemailer.createTransport({
@@ -955,70 +1040,174 @@ const resetPassword = async (req, res) => {
   }
 };
 
-// Generate and send OTP
-// Send OTP for signup (no need to check User existence)
-const sendOtp = async (req, res) => {
+const generateOtp = () => {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+};
+
+const sendOtpEmail = async (email, otp) => {
   try {
-    const { email, fullName, password } = req.body;
-    // Validate basic
-    if (!email || !fullName || !password) {
-      return res.status(400).json({ message: "Missing required fields" });
-    }
-    // Check if user already exists
-    const userExists = await User.findOne({ email });
-    if (userExists) {
-      return res.status(409).json({ message: "Email already exists. Please login." });
-    }
-    // Generate 6-digit OTP
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const otpExpires = Date.now() + 15 * 60 * 1000;
-    // Save to memory
-    pendingSignups[email] = { otp, otpExpires, fullName, password };
-    // Send OTP email
-    await sendOtpEmail(email, otp);
-    res.status(200).json({ success: true, message: "OTP sent!" });
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ message: "Error sending OTP", error: e.message });
+    const transporter = nodemailer.createTransport({
+      host: process.env.EMAIL_HOST,
+      port: process.env.EMAIL_PORT,
+      secure: process.env.EMAIL_SECURE === 'true',
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS
+      }
+    });
+
+    const mailOptions = {
+      from: `"Artelier" <${process.env.EMAIL_FROM}>`,
+      to: email,
+      subject: "Your Artelier Verification Code",
+      html: `
+        <div style="font-family: Arial, sans-serif;">
+          <h2>Your Verification Code</h2>
+          <p>Use this code to complete your registration:</p>
+          <div style="font-size: 24px; font-weight: bold; margin: 20px 0;">${otp}</div>
+          <p>This code will expire in 15 minutes.</p>
+        </div>
+      `
+    };
+
+    await transporter.sendMail(mailOptions);
+    console.log(`OTP email sent to ${email}`);
+    return true;
+  } catch (err) {
+    console.error("Failed to send OTP email:", err);
+    throw new Error("Failed to send OTP email");
   }
 };
 
-// Verify OTP and register user
-const verifyOtp = async (req, res) => {
+
+const sendSignupOtp = async (req, res) => {
   try {
-    const { email, otp } = req.body;
-    const record = pendingSignups[email];
-    if (!record) {
-      return res.status(400).json({ message: "No OTP found. Please try again." });
+    const { email } = req.body;
+
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ message: "Invalid email address" });
     }
-    if (record.otp !== otp) {
+
+    // Check if user already exists
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(409).json({ message: "Email already registered" });
+    }
+
+    // Generate OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpExpires = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+
+    // Store in pendingSignups (in-memory for now - consider Redis in production)
+    pendingSignups[email] = {
+      otp,
+      otpExpires,
+      attempts: 0
+    };
+
+    // Send OTP email
+    await sendOtpEmail(email, otp);
+
+    res.status(200).json({
+      success: true,
+      message: "OTP sent to your email"
+    });
+  } catch (err) {
+    console.error("OTP send error:", err);
+    res.status(500).json({
+      message: "Failed to send OTP",
+      error: err.message
+    });
+  }
+};
+
+const verifySignupOtp = async (req, res) => {
+  try {
+    const { email, otp, fullName, password } = req.body;
+
+    // Basic validation
+    if (!email || !otp || !fullName || !password) {
+      return res.status(400).json({ message: "All fields are required" });
+    }
+
+    // Get pending OTP
+    const pendingOtp = pendingSignups[email];
+    if (!pendingOtp) {
+      return res.status(400).json({ message: "No OTP request found for this email" });
+    }
+
+    // Check attempts
+    if (pendingOtp.attempts >= 3) {
+      delete pendingSignups[email];
+      return res.status(400).json({ message: "Too many attempts. Please request a new OTP." });
+    }
+
+    // Check expiration
+    if (pendingOtp.otpExpires < new Date()) {
+      delete pendingSignups[email];
+      return res.status(400).json({ message: "OTP expired. Please request a new one." });
+    }
+
+    // Verify OTP
+    if (pendingOtp.otp !== otp) {
+      pendingOtp.attempts += 1;
       return res.status(400).json({ message: "Invalid OTP" });
     }
-    if (record.otpExpires < Date.now()) {
-      delete pendingSignups[email];
-      return res.status(400).json({ message: "OTP expired. Please request again." });
-    }
-    // All good – create user
-    const hashedPassword = await bcrypt.hash(record.password, 10);
+
+    // OTP verified - create user
+    const hashedPassword = await bcrypt.hash(password, 10);
     const username = await generateUsername(email);
-    const user = new User({
-      fullName: record.fullName,
+
+    const newUser = new User({
+      fullName,
       email,
       password: hashedPassword,
       username,
-      isVerified: true,
+      isVerified: true // Since we verified via OTP
     });
-    await user.save();
+
+    await newUser.save();
     delete pendingSignups[email];
-    res.status(201).json({ success: true, message: "Registration successful!" });
-  } catch (e) {
-    res.status(500).json({ message: "Registration failed", error: e.message });
+
+    // Generate JWT token for immediate login
+    const token = jwt.sign(
+      {
+        userId: newUser._id,
+        email: newUser.email,
+        username: newUser.username,
+      },
+      process.env.SECRET_KEY,
+      { expiresIn: "90d" }
+    );
+
+    res.status(201).json({
+      success: true,
+      message: "Registration successful",
+      token,
+      user: {
+        userId: newUser._id,
+        email: newUser.email,
+        username: newUser.username,
+        fullName: newUser.fullName,
+        profilePicture: newUser.profilePicture || null,
+        coverPicture: newUser.coverPicture || null
+      }
+    });
+  } catch (err) {
+    console.error("OTP verification error:", err);
+    res.status(500).json({
+      message: "Registration failed",
+      error: err.message
+    });
   }
 };
 
 // Add to exports
 module.exports = {
   register,
+  // setupMFA,
+  // verifyMFA,
+  // finalizeMFALogin,
   login,
   findProfile,
   toggleFollow,
@@ -1033,8 +1222,8 @@ module.exports = {
   searchUsers,
   sendPasswordResetEmail,
   resetPassword,
-  sendOtp,
-  verifyOtp,
+  sendSignupOtp,
+  verifySignupOtp,
   verifyEmail,
   resendVerificationEmail
 };
