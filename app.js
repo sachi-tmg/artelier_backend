@@ -16,6 +16,7 @@ const like_router = require("./routes/like_route");
 const commentRoutes = require('./routes/comment_route');
 const orderRoutes = require('./routes/order_route');
 const contact_route = require('./routes/contact_route');
+const admin_router = require('./routes/admin_route');
 const cors = require("cors");
 
 const app = express();
@@ -39,6 +40,7 @@ app.use(express.json());
 app.use("/api/user", user_router);
 app.use("/api/creation", creation_router);
 app.use("/api/cart", cartRoutes);
+app.use('/api/admin', admin_router); 
 
 app.use("/api/payment", payment_router);
 app.use("/api/favorite", favorite_router);
