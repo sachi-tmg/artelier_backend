@@ -117,6 +117,11 @@ const userSchema = new mongoose.Schema({
         purchases: { type: Boolean, default: true },
         commentReplies: { type: Boolean, default: true },
         commentLikes: { type: Boolean, default: true }
+    },
+    role: {
+        type: String,
+        enum: ['user', 'admin'],
+        default: 'user'
     }
     });
 

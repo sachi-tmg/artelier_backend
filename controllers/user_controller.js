@@ -1,4 +1,5 @@
 const User = require("../models/user");
+const LoginAttempt = require("../models/login_attempt");
 const bcrypt = require("bcrypt");
 require("dotenv").config();
 const jwt = require("jsonwebtoken")
@@ -42,7 +43,8 @@ const register = async (req, res) => {
       username,
       emailVerificationToken: verificationToken,
       emailVerificationExpires: verificationExpires,
-      isVerified: false
+      isVerified: false,
+      role: 'user' 
     });
 
     const verificationUrl = `${process.env.FRONTEND_URL}/verify-email?token=${verificationToken}&email=${encodeURIComponent(email)}`;
@@ -203,236 +205,163 @@ const resendVerificationEmail = async (req, res) => {
   }
 };
 
-
-// // ======================
-// // MFA SETUP (STEP 1)
-// // ======================
-// const setupMFA = async (req, res) => {
-//   try {
-//     const user = await User.findById(req.user.id);
-    
-//     // Generate secret
-//     const secret = speakeasy.generateSecret({
-//       length: 20,
-//       name: `Artelier (${user.email})`,
-//       issuer: 'Artelier'
-//     });
-
-//     // Generate QR code
-//     const qrCodeUrl = await QRCode.toDataURL(secret.otpauth_url);
-
-//     // Save secret (don't enable yet)
-//     user.mfaSecret = secret.base32;
-//     await user.save();
-
-//     res.json({
-//       qrCodeUrl,       // Frontend shows this as <img src={qrCodeUrl}>
-//       manualCode: secret.base32, // For manual entry
-//       mfaEnabled: false
-//     });
-
-//   } catch (err) {
-//     res.status(500).json({ error: 'MFA setup failed' });
-//   }
-// };
-
-// // ======================
-// // VERIFY & ACTIVATE MFA (STEP 2)
-// // ======================
-// const verifyMFA = async (req, res) => {
-//   try {
-//     const { code } = req.body;
-//     const user = await User.findById(req.user.id);
-
-//     // Verify the code
-//     const verified = speakeasy.totp.verify({
-//       secret: user.mfaSecret,
-//       encoding: 'base32',
-//       token: code,
-//       window: 1 // Allows 30s time drift
-//     });
-
-//     if (!verified) {
-//       return res.status(400).json({ error: 'Invalid code' });
-//     }
-
-//     // Generate backup codes
-//     const backupCodes = Array.from({ length: 10 }, () => ({
-//       code: crypto.randomBytes(4).toString('hex').toUpperCase(),
-//       used: false
-//     }));
-
-//     // Enable MFA
-//     user.mfaEnabled = true;
-//     user.backupCodes = backupCodes;
-//     await user.save();
-
-//     res.json({
-//       success: true,
-//       backupCodes: backupCodes.map(b => b.code), // Show once!
-//       mfaEnabled: true
-//     });
-
-//   } catch (err) {
-//     res.status(500).json({ error: 'MFA activation failed' });
-//   }
-// };
-
-// Login API
+// user_controller.js
 const login = async (req, res) => {
-    try {
-        const { email, password } = req.body;
+  const MAX_ATTEMPTS = 5;
+  const LOCKOUT_TIME = 15 * 60 * 1000;
+  const IP_ATTEMPT_WINDOW = 60 * 60 * 1000;
+  const IP_MAX_ATTEMPTS = 20;
 
-        // --- 1. Server-side Input Validation ---
-        if (!email || typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-            return res.status(400).json({ message: "A valid email is required." });
-        }
-        if (!password || typeof password !== 'string' || password.length < 6) {
-            return res.status(400).json({ message: "Password is required and must be at least 6 characters long." });
-        }
+  try {
+    const { email, password } = req.body;
+    const ip = req.ip || req.connection.remoteAddress;
 
-        // --- 2. Find the user by email ---
-        const user = await User.findOne({ email: email });
-
-        if (!user) {
-            // Using a generic message for security reasons
-            return res.status(401).json({ message: "Invalid credentials." });
-        }
-
-        if (!user.isVerified) {
-          return res.status(403).json({ message: "Please verify your email before logging in." });
-        }
-
-        if (user.mfaEnabled) {
-          // Issue temp token requiring MFA
-          const tempToken = jwt.sign(
-            { userId: user._id, mfaPending: true },
-            process.env.JWT_SECRET,
-            { expiresIn: '5m' }
-          );
-          
-          return res.json({ 
-            mfaRequired: true,
-            tempToken,
-            message: 'Enter code from authenticator app'
-          });
-        }
-
-        // --- 3. Validate the password ---
-        const isPasswordValid = await bcrypt.compare(password, user.password);
-        if (!isPasswordValid) {
-            return res.status(401).json({ message: "Invalid credentials." });
-        }
-
-        // --- 4. Handle first login status (if applicable) ---
-        // Ensure your User model has a `loggedInOnce` field (e.g., type: Boolean, default: false)
-        if (user.loggedInOnce === false) {
-            user.loggedInOnce = true;
-            await user.save();
-        }
-
-        // --- 5. Create JWT token with user details ---
-        // Ensure process.env.SECRET_KEY is defined in your .env file
-        if (!process.env.SECRET_KEY) {
-            console.error("SECRET_KEY is not defined in environment variables.");
-            return res.status(500).json({ message: "Server configuration error." });
-        }
-
-        const token = jwt.sign(
-            {
-                userId: user._id,
-                email: user.email,
-                username: user.username,
-            },
-            process.env.SECRET_KEY,
-            { expiresIn: "90d" } // Token expires in 90 days
-        );
-
-        // --- 6. Prepare and send response ---
-        const userResponse = {
-            userId: user._id,
-            email: user.email,
-            username: user.username,
-            fullName: user.fullName,
-            profilePicture: user.profilePicture || null,
-            coverPicture: user.coverPicture || null,
-            loggedInOnce: user.loggedInOnce
-        };
-        
-        res.status(200).json({
-            success: true,
-            message: "Login successful!",
-            token: token,
-            user: userResponse,
-        });
-
-    } catch (e) {
-        console.error("Login error:", e);
-        res.status(500).json({ message: "Server error during login.", error: e.message });
+    if (!email || !password) {
+      return res.status(400).json({ success: false, message: "Email and password are required" });
     }
+
+    const ipAttempts = await LoginAttempt.countDocuments({
+      ip,
+      createdAt: { $gt: new Date(Date.now() - IP_ATTEMPT_WINDOW) }
+    });
+
+    if (ipAttempts >= IP_MAX_ATTEMPTS) {
+      return res.status(429).json({
+        success: false,
+        message: "Too many attempts from your network. Try again later."
+      });
+    }
+
+    const user = await User.findOne({ email }).select('+password +loginAttempts +loginLockUntil');
+
+    if (!user) {
+      await LoginAttempt.create({ email, ip, successful: false });
+      return res.status(401).json({ success: false, message: "Invalid email or password" });
+    }
+
+    if (user.loginLockUntil && user.loginLockUntil > Date.now()) {
+      const remainingMinutes = Math.ceil((user.loginLockUntil - Date.now()) / 60000);
+      return res.status(403).json({
+        success: false,
+        message: `Account temporarily locked. Try again in ${remainingMinutes} minute(s).`
+      });
+    }
+
+    const isPasswordValid = await bcrypt.compare(password, user.password);
+    if (!isPasswordValid) {
+      await LoginAttempt.create({ email, ip, successful: false });
+
+      const newAttempts = (user.loginAttempts || 0) + 1;
+      const lockUntil = newAttempts >= MAX_ATTEMPTS ? Date.now() + LOCKOUT_TIME : null;
+
+      await User.updateOne(
+        { email },
+        {
+          loginAttempts: newAttempts,
+          ...(lockUntil && { loginLockUntil: lockUntil })
+        }
+      );
+
+      return res.status(401).json({ success: false, message: "Invalid email or password" });
+    }
+
+    if (!user.isVerified) {
+      return res.status(403).json({ success: false, message: "Please verify your email before logging in." });
+    }
+
+    await User.updateOne({ email }, { $set: { loginAttempts: 0, loginLockUntil: null } });
+    await LoginAttempt.create({ email, ip, successful: true });
+
+    // MFA check
+    // Always trigger OTP-based MFA
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpExpires = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+
+    user.mfaOtp = otp;
+    user.mfaOtpExpires = otpExpires;
+    await user.save();
+
+    await sendOtpEmail(user.email, otp, "login");
+
+    const tempToken = jwt.sign(
+      {
+        userId: user._id,
+        mfa: true
+      },
+      process.env.SECRET_KEY,
+      { expiresIn: "15m" }
+    );
+
+    return res.status(200).json({
+      mfaRequired: true,
+      tempToken,
+      message: "OTP sent to your email. Please verify."
+    });
+
+
+
+  } catch (err) {
+    console.error("Login error:", err);
+    return res.status(500).json({ success: false, message: "An error occurred during login" });
+  }
 };
 
-// const finalizeMFALogin = async (req, res) => {
-//   try {
-//     const { tempToken, code } = req.body;
-    
-//     // Verify temp token
-//     const decoded = jwt.verify(tempToken, process.env.JWT_SECRET);
-//     if (!decoded.mfaPending) {
-//       throw new Error('Invalid token');
-//     }
 
-//     const user = await User.findById(decoded.userId);
 
-//     // Check backup codes first
-//     const backupCode = user.backupCodes.find(b => 
-//       !b.used && b.code === code
-//     );
+const verifyMfa = async (req, res) => {
+  const { tempToken, code } = req.body;
 
-//     if (backupCode) {
-//       // Mark backup code as used
-//       backupCode.used = true;
-//       await user.save();
-//     } else {
-//       // Verify TOTP code
-//       const verified = speakeasy.totp.verify({
-//         secret: user.mfaSecret,
-//         encoding: 'base32',
-//         token: code,
-//         window: 1
-//       });
-//       if (!verified) {
-//         throw new Error('Invalid code');
-//       }
-//     }
+  if (!tempToken || !code) {
+    return res.status(400).json({ message: "Missing temp token or verification code" });
+  }
 
-//     // Issue final token
-//     const accessToken = jwt.sign(
-//       {
-//         userId: user._id,
-//         email: user.email,
-//         username: user.username
-//       },
-//       process.env.JWT_SECRET,
-//       { expiresIn: '90d' }
-//     );
+  try {
+    const decoded = jwt.verify(tempToken, process.env.SECRET_KEY);
+    const user = await User.findById(decoded.userId);
 
-//     res.json({ 
-//       success: true,
-//       token: accessToken,
-//       user: {
-//         userId: user._id,
-//         email: user.email,
-//         username: user.username,
-//         fullName: user.fullName,
-//         mfaEnabled: true
-//       }
-//     });
+    if (!user || !user.mfaOtp) {
+      return res.status(403).json({ message: "OTP not found or user invalid" });
+    }
 
-//   } catch (err) {
-//     res.status(401).json({ error: 'MFA verification failed' });
-//   }
-// };
+    const isCodeMatch = user.mfaOtp === code;
+    const isExpired = Date.now() > user.mfaOtpExpires;
+
+
+    if (!isCodeMatch || isExpired) {
+      return res.status(403).json({ message: "Invalid or expired MFA code" });
+    }
+
+    // Clear OTP after successful use
+    user.mfaOtp = undefined;
+    user.mfaOtpExpires = undefined;
+
+    await user.save();
+
+    const finalToken = jwt.sign(
+      { userId: user._id, role: user.role },
+      process.env.SECRET_KEY,
+      { expiresIn: "1d" }
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "MFA verification successful",
+      token: finalToken,
+      user: {
+        userId: user._id,
+        username: user.username,
+        email: user.email,
+        fullName: user.fullName,
+        profilePicture: user.profilePicture,
+        coverPicture: user.coverPicture,
+        role: user.role,
+      }
+    });
+  } catch (err) {
+    console.error("verifyMfa error:", err);
+    return res.status(500).json({ message: "Internal server error" });
+  }
+};
 
 
 const findProfile = async (req, res) => {
@@ -481,6 +410,123 @@ const findProfile = async (req, res) => {
         console.error("Error fetching profile:", e);
         res.status(500).json({ message: "Server error", error: e.message });
     }
+};
+
+// Admin-only functions
+const createAdminUser = async (req, res) => {
+  try {
+    const { fullName, email, password } = req.body;
+
+    // Basic validation
+    if (!fullName || !email || !password) {
+      return res.status(400).json({ message: "All fields are required" });
+    }
+
+    // Check existing user
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(409).json({ message: "Email already registered." });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const username = await generateUsername(email);
+
+    const newAdmin = new User({
+      fullName,
+      email,
+      password: hashedPassword,
+      username,
+      role: 'admin',
+      isVerified: true // Admins don't need email verification
+    });
+
+    await newAdmin.save();
+
+    return res.status(201).json({
+      success: true,
+      message: "Admin user created successfully"
+    });
+
+  } catch (err) {
+    console.error("Admin creation error:", err);
+    return res.status(500).json({
+      message: "Server error during admin creation",
+      error: err.message
+    });
+  }
+};
+
+const listAllUsers = async (req, res) => {
+  try {
+    const { page = 1, limit = 20, search = '' } = req.query;
+    
+    const query = {};
+    if (search) {
+      query.$or = [
+        { fullName: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
+        { username: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    const users = await User.find(query)
+      .select('-password -mfaSecret -backupCodes') // Exclude sensitive info
+      .skip((page - 1) * limit)
+      .limit(limit)
+      .sort({ createdAt: -1 });
+
+    const totalUsers = await User.countDocuments(query);
+
+    return res.status(200).json({
+      success: true,
+      users,
+      total: totalUsers,
+      page: parseInt(page),
+      pages: Math.ceil(totalUsers / limit)
+    });
+
+  } catch (err) {
+    console.error("Error listing users:", err);
+    return res.status(500).json({
+      message: "Server error while fetching users",
+      error: err.message
+    });
+  }
+};
+
+const unlockUserAccount = async (req, res) => {
+  try {
+    const { userId } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ message: "Invalid user ID" });
+    }
+
+    const user = await User.findByIdAndUpdate(
+      userId,
+      { 
+        loginAttempts: 0,
+        loginLockUntil: null 
+      },
+      { new: true }
+    );
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "User account unlocked successfully"
+    });
+
+  } catch (err) {
+    console.error("Error unlocking account:", err);
+    return res.status(500).json({
+      message: "Server error while unlocking account",
+      error: err.message
+    });
+  }
 };
 
 
@@ -1044,7 +1090,7 @@ const generateOtp = () => {
   return Math.floor(100000 + Math.random() * 900000).toString();
 };
 
-const sendOtpEmail = async (email, otp) => {
+const sendOtpEmail = async (email, otp, purpose = "login") => {
   try {
     const transporter = nodemailer.createTransport({
       host: process.env.EMAIL_HOST,
@@ -1056,14 +1102,20 @@ const sendOtpEmail = async (email, otp) => {
       }
     });
 
+    // Customize based on purpose
+    const title = "Your Verification Code";
+    const actionText = purpose === "signup"
+      ? "Use this code to complete your registration:"
+      : "Use this code to verify your login:";
+
     const mailOptions = {
       from: `"Artelier" <${process.env.EMAIL_FROM}>`,
       to: email,
       subject: "Your Artelier Verification Code",
       html: `
         <div style="font-family: Arial, sans-serif;">
-          <h2>Your Verification Code</h2>
-          <p>Use this code to complete your registration:</p>
+          <h2>${title}</h2>
+          <p>${actionText}</p>
           <div style="font-size: 24px; font-weight: bold; margin: 20px 0;">${otp}</div>
           <p>This code will expire in 15 minutes.</p>
         </div>
@@ -1071,13 +1123,14 @@ const sendOtpEmail = async (email, otp) => {
     };
 
     await transporter.sendMail(mailOptions);
-    console.log(`OTP email sent to ${email}`);
+    console.log(`OTP email sent to ${email} for ${purpose}`);
     return true;
   } catch (err) {
     console.error("Failed to send OTP email:", err);
     throw new Error("Failed to send OTP email");
   }
 };
+
 
 
 const sendSignupOtp = async (req, res) => {
@@ -1106,7 +1159,7 @@ const sendSignupOtp = async (req, res) => {
     };
 
     // Send OTP email
-    await sendOtpEmail(email, otp);
+    await sendOtpEmail(email, otp, "signup");
 
     res.status(200).json({
       success: true,
@@ -1202,12 +1255,96 @@ const verifySignupOtp = async (req, res) => {
   }
 };
 
+const createAdmin = async (req, res) => {
+  try {
+    const { email, password, fullName } = req.body;
+    
+    // Check if any admin exists
+    const adminExists = await User.findOne({ role: 'admin' });
+    if (adminExists) {
+      return res.status(400).json({ message: "An admin already exists" });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const username = email.split('@')[0] + '-admin';
+
+    const admin = new User({
+      email,
+      password: hashedPassword,
+      fullName,
+      username,
+      role: 'admin',
+      isVerified: true
+    });
+
+    await admin.save();
+
+    return res.status(201).json({
+      success: true,
+      message: "First admin created successfully"
+    });
+  } catch (err) {
+    console.error("Error creating first admin:", err);
+    return res.status(500).json({
+      message: "Error creating first admin",
+      error: err.message
+    });
+  }
+};
+
+const createInitialAdmin = async (req, res) => {
+  try {
+    // Check if any admin exists
+    const adminExists = await User.findOne({ role: 'admin' });
+    if (adminExists) {
+      return res.status(400).json({ 
+        success: false,
+        message: "Admin already exists. Only one admin can be created."
+      });
+    }
+
+    const { email, password, fullName } = req.body;
+    
+    // Validate inputs
+    if (!email || !password || !fullName) {
+      return res.status(400).json({ 
+        success: false,
+        message: "Email, password and full name are required" 
+      });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const username = email.split('@')[0] + '-admin';
+
+    const admin = new User({
+      email,
+      password: hashedPassword,
+      fullName,
+      username,
+      role: 'admin',
+      isVerified: true
+    });
+
+    await admin.save();
+
+    return res.status(201).json({
+      success: true,
+      message: "Initial admin created successfully"
+    });
+  } catch (err) {
+    console.error("Error creating initial admin:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Error creating initial admin",
+      error: err.message
+    });
+  }
+};
+
 // Add to exports
 module.exports = {
   register,
-  // setupMFA,
-  // verifyMFA,
-  // finalizeMFALogin,
+  verifyMfa,
   login,
   findProfile,
   toggleFollow,
@@ -1225,7 +1362,12 @@ module.exports = {
   sendSignupOtp,
   verifySignupOtp,
   verifyEmail,
-  resendVerificationEmail
+  resendVerificationEmail,
+  createAdminUser,
+  listAllUsers,
+  unlockUserAccount,
+  createAdmin,
+  createInitialAdmin
 };
 
 
