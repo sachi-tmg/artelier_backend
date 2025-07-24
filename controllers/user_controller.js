@@ -352,18 +352,22 @@ const verifyMfa = async (req, res) => {
       { expiresIn: "1d" }
     );
 
+    res.cookie("token", finalToken, {
+      httpOnly: true,
+      secure: true,
+      sameSite: "None",
+      maxAge: 24 * 60 * 60 * 1000,
+    });
+
     return res.status(200).json({
       success: true,
       message: "MFA verification successful",
-      token: finalToken,
       user: {
-        userId: user._id,
+        _id: user._id,
         username: user.username,
-        email: user.email,
-        fullName: user.fullName,
-        profilePicture: user.profilePicture,
-        coverPicture: user.coverPicture,
         role: user.role,
+        profilePicture: user.profilePicture,
+        coverPicture: user.coverPicture
       }
     });
   } catch (err) {

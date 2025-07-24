@@ -58,6 +58,15 @@ const authLimiter = rateLimit({
 router.post("/registerUser", userController.register);
 router.post("/login", loginLimiter, userController.login);
 router.post("/verify-mfa", userController.verifyMfa);
+router.post("/logout", (req, res) => {
+  res.clearCookie("token", {
+    httpOnly: true,
+    secure: true,
+    sameSite: "None",
+  });
+  return res.status(200).json({ success: true, message: "Logged out successfully" });
+});
+
 router.post("/profile", userController.findProfile);
 router.post("/toggle-follow", verifyJWT, userController.toggleFollow);
 router.post("/check-follow", verifyJWT, userController.checkFollowStatus);

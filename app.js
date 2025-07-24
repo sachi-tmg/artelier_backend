@@ -37,6 +37,10 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.use(express.json());
 
+const cookieParser = require("cookie-parser");
+app.use(cookieParser());
+
+
 app.use("/api/user", user_router);
 app.use("/api/creation", creation_router);
 app.use("/api/cart", cartRoutes);

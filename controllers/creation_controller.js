@@ -5,11 +5,10 @@ const { v4: uuidv4 } = require('uuid');
 
 // Moved verifyJWT here for completeness, assuming it's in the same file or imported
 const verifyJWT = (req, res, next) => {
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(" ")[1];
+    const token = req.cookies?.token;
 
-    if(token == null) {
-        return res.status(401).json({ error: "No access token" })
+    if (!token) {
+    return res.status(401).json({ success: false, message: "No token provided" });
     }
 
     jwt.verify(token, process.env.SECRET_KEY, (err, user) => {
