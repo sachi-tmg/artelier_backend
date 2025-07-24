@@ -1,12 +1,14 @@
-// models/LoginAttempt.js
-const mongoose = require('mongoose');
+const mongoose = require("mongoose");
 
 const loginAttemptSchema = new mongoose.Schema({
-  email: { type: String, required: true },
-  ip: { type: String, required: true },
-  successful: { type: Boolean, required: true },
-  userAgent: String,
-  createdAt: { type: Date, default: Date.now, expires: '24h' } // Auto-delete after 24h
+  ip: String,
+  email: String,
+  successful: Boolean,
+  createdAt: {
+    type: Date,
+    default: Date.now,
+    expires: 60 * 60 // Auto-delete after 1 hour
+  }
 });
 
-module.exports = mongoose.model('LoginAttempt', loginAttemptSchema);
+module.exports = mongoose.model("LoginAttempt", loginAttemptSchema);

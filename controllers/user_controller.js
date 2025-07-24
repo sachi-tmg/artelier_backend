@@ -220,6 +220,7 @@ const login = async (req, res) => {
       return res.status(400).json({ success: false, message: "Email and password are required" });
     }
 
+    // IP RATE LIMIT BLOCK
     const ipAttempts = await LoginAttempt.countDocuments({
       ip,
       createdAt: { $gt: new Date(Date.now() - IP_ATTEMPT_WINDOW) }
@@ -228,15 +229,23 @@ const login = async (req, res) => {
     if (ipAttempts >= IP_MAX_ATTEMPTS) {
       return res.status(429).json({
         success: false,
-        message: "Too many attempts from your network. Try again later."
+        message: "Too many login attempts from your network. Try again later."
       });
     }
 
-    const user = await User.findOne({ email }).select('+password +loginAttempts +loginLockUntil');
+    // Find user
+    const user = await User.findOne({ email }).select('+password +loginAttempts +loginLockUntil +isBanned');
 
     if (!user) {
       await LoginAttempt.create({ email, ip, successful: false });
       return res.status(401).json({ success: false, message: "Invalid email or password" });
+    }
+
+    if (user.isBanned) {
+      return res.status(403).json({
+        success: false,
+        message: "Your account has been permanently banned due to repeated failed login attempts."
+      });
     }
 
     if (user.loginLockUntil && user.loginLockUntil > Date.now()) {
@@ -247,35 +256,36 @@ const login = async (req, res) => {
       });
     }
 
+    // Validate password
     const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) {
       await LoginAttempt.create({ email, ip, successful: false });
 
       const newAttempts = (user.loginAttempts || 0) + 1;
-      const lockUntil = newAttempts >= MAX_ATTEMPTS ? Date.now() + LOCKOUT_TIME : null;
+      let updateFields = { loginAttempts: newAttempts };
 
-      await User.updateOne(
-        { email },
-        {
-          loginAttempts: newAttempts,
-          ...(lockUntil && { loginLockUntil: lockUntil })
-        }
-      );
+      if (newAttempts >= MAX_ATTEMPTS) {
+        updateFields.loginLockUntil = Date.now() + LOCKOUT_TIME;
+        updateFields.isBanned = true; // Permanent ban
+      }
+
+      await User.updateOne({ email }, updateFields);
 
       return res.status(401).json({ success: false, message: "Invalid email or password" });
     }
 
+    // Account verified check
     if (!user.isVerified) {
       return res.status(403).json({ success: false, message: "Please verify your email before logging in." });
     }
 
+    // ✅ LOGIN SUCCESSFUL — reset counters
     await User.updateOne({ email }, { $set: { loginAttempts: 0, loginLockUntil: null } });
     await LoginAttempt.create({ email, ip, successful: true });
 
-    // MFA check
-    // Always trigger OTP-based MFA
+    // MFA OTP generation
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const otpExpires = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+    const otpExpires = new Date(Date.now() + 15 * 60 * 1000); // 15 mins
 
     user.mfaOtp = otp;
     user.mfaOtpExpires = otpExpires;
@@ -298,13 +308,12 @@ const login = async (req, res) => {
       message: "OTP sent to your email. Please verify."
     });
 
-
-
   } catch (err) {
     console.error("Login error:", err);
     return res.status(500).json({ success: false, message: "An error occurred during login" });
   }
 };
+
 
 
 

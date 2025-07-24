@@ -91,6 +91,22 @@ const userSchema = new mongoose.Schema({
         type: Boolean, 
         default: false 
     },
+    isBanned: {
+        type: Boolean,
+        default: false
+    },
+    loginAttempts: {
+        type: Number,
+        default: 0
+    },
+    loginLockUntil: {
+        type: Date,
+        default: null
+    },
+    lastActive: {
+        type: Date,
+        default: null
+    },
     mfaEnabled: { type: Boolean, default: false },
         mfaSecret: String,       
         backupCodes: [          
