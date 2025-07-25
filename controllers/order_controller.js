@@ -8,12 +8,15 @@ const saveOrder = async (req, res) => {
     try {
     console.log('[CONTROLLER] Request user:', req.user);
     console.log('[CONTROLLER] Request body:', req.body);
+    console.log('[CONTROLLER] Payment method:', req.body.paymentMethod);
+    console.log('[CONTROLLER] Payment status from frontend:', req.body.paymentStatus);
         const userId = req.user.userId;
 
         const {
             items,
             deliveryOption,
             paymentMethod,
+            paymentStatus, // Add this to extract paymentStatus from frontend
             totalAmount,
             subtotal,
             taxAmount,
@@ -60,6 +63,13 @@ const saveOrder = async (req, res) => {
             };
         }
 
+        // Log the payment details for debugging
+        console.log('[ORDER] Creating order with payment details:', {
+            paymentMethod,
+            paymentStatus: paymentStatus || 'unpaid',
+            totalAmount
+        });
+
         const newOrder = new Order({
             user: userId,
             items: orderItems,
@@ -70,7 +80,7 @@ const saveOrder = async (req, res) => {
             shippingAddress: finalShippingAddress, 
             deliveryOption: deliveryOption === 'pickup' ? 'on-site pickup' : 'local delivery',
             paymentMethodUsed: paymentMethod,
-            paymentStatus: paymentMethod === 'cash' ? 'unpaid' : 'unpaid', 
+            paymentStatus: paymentStatus || 'unpaid', // Use the paymentStatus from frontend with fallback
             orderStatus: 'pending',
             customerEmail: customerEmail,
             customerPhone: customerPhone,
