@@ -219,33 +219,64 @@ const getDashboardStats = async (req, res) => {
   try {
     // User statistics
     const totalUsers = await User.countDocuments();
+    const newUsersToday = await User.countDocuments({
+      dateCreated: { $gte: new Date(new Date().setHours(0, 0, 0, 0)) }
+    });
     const newUsersThisWeek = await User.countDocuments({
-      createdAt: { $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) }
+      dateCreated: { $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) }
     });
     
-    // Check if lastActive field exists before querying
-    const activeUsers = await User.countDocuments({
-      lastActive: { $gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) }
-    });
+    // Active users (users who have lastActive within 30 days)
+    // Note: If lastActive is not being updated, we'll use a different approach
+    let activeUsers = 0;
+    try {
+      activeUsers = await User.countDocuments({
+        lastActive: { 
+          $exists: true, 
+          $gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) 
+        }
+      });
+    } catch (error) {
+      // If lastActive field doesn't exist or isn't updated, count verified users as active
+      console.log('LastActive field issue, using verified users as active:', error.message);
+      activeUsers = await User.countDocuments({ isVerified: true, isBanned: false });
+    }
     
-    // Simplified user growth aggregation
+    // Verified users
+    const verifiedUsers = await User.countDocuments({ isVerified: true });
+    const bannedUsers = await User.countDocuments({ isBanned: true });
+    
+    // User growth aggregation (last 30 days) - using dateCreated
     const userGrowth = await User.aggregate([
       {
         $match: {
-          createdAt: { $gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) }
+          dateCreated: { $gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) }
         }
       },
       {
         $group: {
           _id: {
-            $dateToString: { format: "%Y-%m-%d", date: "$createdAt" }
+            $dateToString: { format: "%Y-%m-%d", date: "$dateCreated" }
           },
           count: { $sum: 1 }
         }
       },
-      { $sort: { "_id": 1 } },
-      { $limit: 30 }
+      { $sort: { "_id": 1 } }
     ]);
+
+    // Fill in missing dates with zero count for better chart visualization
+    const last30Days = [];
+    for (let i = 29; i >= 0; i--) {
+      const date = new Date();
+      date.setDate(date.getDate() - i);
+      const dateStr = date.toISOString().split('T')[0];
+      
+      const existingData = userGrowth.find(item => item._id === dateStr);
+      last30Days.push({
+        _id: dateStr,
+        count: existingData ? existingData.count : 0
+      });
+    }
 
     // Login attempts
     const failedAttempts = await LoginAttempt.countDocuments({
@@ -253,23 +284,28 @@ const getDashboardStats = async (req, res) => {
       createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }
     });
 
+    const successfulLogins = await LoginAttempt.countDocuments({
+      successful: true,
+      createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }
+    });
+
     // User role breakdown
     const userRoles = await User.aggregate([
       {
         $group: {
-          _id: "$role",
+          _id: { $ifNull: ["$role", "user"] }, // Handle null roles as 'user'
           count: { $sum: 1 }
         }
       }
     ]);
 
-    // User status breakdown
+    // User status breakdown - fix the grouping to handle all combinations
     const userStatus = await User.aggregate([
       {
         $group: {
           _id: {
-            verified: "$isVerified",
-            banned: "$isBanned"
+            verified: { $ifNull: ["$isVerified", false] },
+            banned: { $ifNull: ["$isBanned", false] }
           },
           count: { $sum: 1 }
         }
@@ -282,8 +318,16 @@ const getDashboardStats = async (req, res) => {
       createdAt: { $gte: new Date(new Date().setHours(0, 0, 0, 0)) }
     });
     
+    const newOrdersThisWeek = await Order.countDocuments({
+      createdAt: { $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) }
+    });
+    
     const pendingOrders = await Order.countDocuments({ orderStatus: 'pending' });
+    const processingOrders = await Order.countDocuments({ orderStatus: 'processing' });
+    const shippedOrders = await Order.countDocuments({ orderStatus: 'shipped' });
+    const deliveredOrders = await Order.countDocuments({ orderStatus: 'delivered' });
     const completedOrders = await Order.countDocuments({ orderStatus: 'completed' });
+    const cancelledOrders = await Order.countDocuments({ orderStatus: 'cancelled' });
     
     // Revenue today
     const revenueToday = await Order.aggregate([
@@ -301,26 +345,78 @@ const getDashboardStats = async (req, res) => {
       }
     ]);
 
+    // Revenue this week
+    const revenueThisWeek = await Order.aggregate([
+      {
+        $match: {
+          paymentStatus: "paid",
+          createdAt: { $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) }
+        }
+      },
+      {
+        $group: {
+          _id: null,
+          total: { $sum: "$totalAmount" }
+        }
+      }
+    ]);
+
+    // Payment status breakdown
+    const paymentStatusBreakdown = await Order.aggregate([
+      {
+        $group: {
+          _id: "$paymentStatus",
+          count: { $sum: 1 }
+        }
+      }
+    ]);
+
+    // Add some debugging information
+    console.log('Dashboard Debug Info:', {
+      totalUsers,
+      newUsersToday,
+      newUsersThisWeek,
+      activeUsers,
+      userGrowthCount: userGrowth.length,
+      sampleUserGrowth: userGrowth.slice(0, 3),
+      totalOrders,
+      revenueToday: revenueToday[0]?.total || 0
+    });
+
     return res.status(200).json({
       success: true,
       stats: {
         users: {
           total: totalUsers,
+          newToday: newUsersToday,
           newThisWeek: newUsersThisWeek,
           active: activeUsers,
-          growth: userGrowth,
+          verified: verifiedUsers,
+          banned: bannedUsers,
+          growth: last30Days, // Complete 30-day data with zeros filled
           byRole: userRoles,
           byStatus: userStatus
         },
         orders: {
           total: totalOrders,
           newToday: newOrdersToday,
+          newThisWeek: newOrdersThisWeek,
           pending: pendingOrders,
+          processing: processingOrders,
+          shipped: shippedOrders,
+          delivered: deliveredOrders,
           completed: completedOrders,
-          revenueToday: revenueToday[0]?.total || 0
+          cancelled: cancelledOrders,
+          revenueToday: revenueToday[0]?.total || 0,
+          revenueThisWeek: revenueThisWeek[0]?.total || 0,
+          byPaymentStatus: paymentStatusBreakdown
         },
         security: {
-          failedAttempts24h: failedAttempts
+          failedAttempts24h: failedAttempts,
+          successfulLogins24h: successfulLogins,
+          loginSuccessRate: successfulLogins + failedAttempts > 0 
+            ? Math.round((successfulLogins / (successfulLogins + failedAttempts)) * 100) 
+            : 100
         }
       }
     });
