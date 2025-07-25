@@ -7,6 +7,7 @@ const { v4: uuidv4 } = require('uuid');
 const crypto = require('crypto');
 const mongoose = require('mongoose');
 const nodemailer = require('nodemailer');
+const { validatePassword } = require('../utils/password_validator');
 const pendingSignups = {};
 const speakeasy = require('speakeasy');
 const QRCode = require('qrcode');
@@ -22,8 +23,19 @@ const register = async (req, res) => {
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
       return res.status(400).json({ message: "Invalid email address." });
 
-    if (!password || password.length < 8)
-      return res.status(400).json({ message: "Password must be 8+ chars." });
+    if (!password) {
+      return res.status(400).json({ message: "Password is required." });
+    }
+
+    // Enhanced password validation
+    const passwordValidation = validatePassword(password);
+    if (!passwordValidation.isValid) {
+      return res.status(400).json({ 
+        message: "Password does not meet security requirements.",
+        errors: passwordValidation.errors,
+        strength: passwordValidation.strength
+      });
+    }
 
     // Check existing user
     const existingUser = await User.findOne({ email });
@@ -340,9 +352,10 @@ const verifyMfa = async (req, res) => {
       return res.status(403).json({ message: "Invalid or expired MFA code" });
     }
 
-    // Clear OTP after successful use
+    // Clear OTP after successful use and update lastActive
     user.mfaOtp = undefined;
     user.mfaOtpExpires = undefined;
+    user.lastActive = new Date();
 
     await user.save();
 
@@ -755,7 +768,22 @@ const updatePassword = async (req, res) => {
     const { currentPassword, newPassword } = req.body;
     const userId = req.user.userId;
 
-    const user = await User.findById(userId);
+    // Basic validation
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ message: "Current password and new password are required" });
+    }
+
+    // Enhanced password validation for new password
+    const passwordValidation = validatePassword(newPassword);
+    if (!passwordValidation.isValid) {
+      return res.status(400).json({ 
+        message: "New password does not meet security requirements.",
+        errors: passwordValidation.errors,
+        strength: passwordValidation.strength
+      });
+    }
+
+    const user = await User.findById(userId).select('+password');
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
@@ -765,11 +793,21 @@ const updatePassword = async (req, res) => {
       return res.status(400).json({ message: "Current password is incorrect" });
     }
 
+    // Check if new password is the same as current password
+    const isSamePassword = await bcrypt.compare(newPassword, user.password);
+    if (isSamePassword) {
+      return res.status(400).json({ message: "New password must be different from current password" });
+    }
+
     const hashedPassword = await bcrypt.hash(newPassword, 10);
     user.password = hashedPassword;
     await user.save();
 
-    res.status(200).json({ success: true, message: "Password updated successfully" });
+    res.status(200).json({ 
+      success: true, 
+      message: "Password updated successfully",
+      passwordStrength: passwordValidation.strength
+    });
   } catch (error) {
     res.status(500).json({ message: "Error updating password", error: error.message });
   }
@@ -1022,8 +1060,14 @@ const resetPassword = async (req, res) => {
       return res.status(400).json({ message: "Token, email, and new password are required." });
     }
 
-    if (newPassword.length < 8) {
-      return res.status(400).json({ message: "Password must be at least 8 characters long." });
+    // Enhanced password validation
+    const passwordValidation = validatePassword(newPassword);
+    if (!passwordValidation.isValid) {
+      return res.status(400).json({ 
+        message: "New password does not meet security requirements.",
+        errors: passwordValidation.errors,
+        strength: passwordValidation.strength
+      });
     }
 
     // Find user
@@ -1031,7 +1075,7 @@ const resetPassword = async (req, res) => {
       email: normalizedEmail,
       passwordResetToken: token,
       passwordResetExpires: { $gt: Date.now() }
-    });
+    }).select('+password');
 
     if (!user) {
       // More detailed error logging
@@ -1046,6 +1090,12 @@ const resetPassword = async (req, res) => {
       return res.status(400).json({ 
         message: "Password reset token is invalid or has expired. Please request a new reset link." 
       });
+    }
+
+    // Check if new password is the same as current password
+    const isSamePassword = await bcrypt.compare(newPassword, user.password);
+    if (isSamePassword) {
+      return res.status(400).json({ message: "New password must be different from current password" });
     }
 
     // Hash new password
@@ -1354,6 +1404,43 @@ const createInitialAdmin = async (req, res) => {
   }
 };
 
+// Password strength checker endpoint
+const checkPasswordStrength = async (req, res) => {
+  try {
+    const { password } = req.body;
+
+    if (!password) {
+      return res.status(400).json({ message: "Password is required" });
+    }
+
+    const passwordValidation = validatePassword(password);
+    
+    return res.status(200).json({
+      success: true,
+      validation: {
+        isValid: passwordValidation.isValid,
+        strength: passwordValidation.strength,
+        errors: passwordValidation.errors,
+        requirements: {
+          minLength: password.length >= 8,
+          hasLowercase: /[a-z]/.test(password),
+          hasUppercase: /[A-Z]/.test(password),
+          hasNumber: /\d/.test(password),
+          hasSpecialChar: /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password),
+          isNotCommon: !['password', '123456', '12345678', 'qwerty', 'abc123', 'password123', 'admin', 'letmein', 'welcome', '123456789'].includes(password.toLowerCase())
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error("Error checking password strength:", error);
+    return res.status(500).json({ 
+      message: "Error checking password strength", 
+      error: error.message 
+    });
+  }
+};
+
 // Add to exports
 module.exports = {
   register,
@@ -1380,7 +1467,8 @@ module.exports = {
   listAllUsers,
   unlockUserAccount,
   createAdmin,
-  createInitialAdmin
+  createInitialAdmin,
+  checkPasswordStrength
 };
 
 
