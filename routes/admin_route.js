@@ -21,4 +21,9 @@ router.delete('/orders/:orderId', requireAdmin, adminController.deleteOrder);
 // Dashboard
 router.get('/dashboard/stats', requireAdmin, adminController.getDashboardStats);
 
+// Audit logs and security
+router.get('/audit-logs', requireAdmin, adminController.getAuditLogs);
+router.get('/security-alerts', requireAdmin, adminController.getSecurityAlerts);
+router.get('/audit-stats', requireAdmin, adminController.getAuditStats);
+
 module.exports = router;

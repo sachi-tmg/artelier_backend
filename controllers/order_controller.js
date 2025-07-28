@@ -1,6 +1,7 @@
 const Creation = require('../models/creation');
 const Notification = require('../models/notification');
 const Order = require('../models/order');
+const AuditLogger = require('../services/audit_logger');
 const mongoose = require('mongoose'); 
 
 // POST /api/orders
@@ -87,6 +88,22 @@ const saveOrder = async (req, res) => {
         });
 
         const savedOrder = await newOrder.save();
+
+        // Audit log order placement
+        await AuditLogger.logOrderAction(
+            { _id: userId, username: req.user.username, role: req.user.role },
+            savedOrder.orderId,
+            'order_placed',
+            req.ip || req.connection.remoteAddress,
+            req.headers['user-agent'],
+            {
+                totalAmount,
+                paymentMethod,
+                paymentStatus,
+                deliveryOption,
+                itemCount: items.length
+            }
+        );
 
         const creationIds = items.map(item => item._id); // assuming this is the custom creation_id
         const creations = await Creation.find(

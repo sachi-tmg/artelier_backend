@@ -3,6 +3,8 @@
 const User = require("../models/user");
 const LoginAttempt = require("../models/login_attempt");
 const Order = require("../models/order");
+const AuditLog = require("../models/audit_log");
+const AuditLogger = require("../services/audit_logger");
 const bcrypt = require("bcrypt");
 const mongoose = require("mongoose");
 
@@ -720,6 +722,196 @@ const getOrderStats = async (req, res) => {
   }
 };
 
+// Get audit logs with filtering and pagination
+const getAuditLogs = async (req, res) => {
+  try {
+    const {
+      page = 1,
+      limit = 50,
+      userId = null,
+      action = null,
+      status = null,
+      ipAddress = null,
+      startDate = null,
+      endDate = null,
+      searchUser = ''
+    } = req.query;
+
+    // Build query
+    const query = {};
+    
+    if (userId) query.userId = userId;
+    if (action) query.action = action;
+    if (status) query.status = status;
+    if (ipAddress) query.ipAddress = ipAddress;
+    
+    if (startDate || endDate) {
+      query.timestamp = {};
+      if (startDate) query.timestamp.$gte = new Date(startDate);
+      if (endDate) query.timestamp.$lte = new Date(endDate);
+    }
+
+    // If searching by username, find user first
+    if (searchUser) {
+      const users = await User.find({
+        $or: [
+          { username: { $regex: searchUser, $options: 'i' } },
+          { email: { $regex: searchUser, $options: 'i' } }
+        ]
+      }).select('_id');
+      
+      if (users.length > 0) {
+        query.userId = { $in: users.map(u => u._id) };
+      } else {
+        // No users found, return empty result
+        return res.status(200).json({
+          success: true,
+          logs: [],
+          total: 0,
+          page: parseInt(page),
+          pages: 0
+        });
+      }
+    }
+
+    const result = await AuditLogger.getAuditLogs({
+      ...query,
+      page: parseInt(page),
+      limit: parseInt(limit)
+    });
+
+    // Audit log admin access to audit logs
+    await AuditLogger.logAdminAction(
+      { _id: req.user._id, username: req.user.username, role: req.user.role },
+      'audit_logs_accessed',
+      '/api/admin/audit-logs',
+      'GET',
+      req.ip || req.connection.remoteAddress,
+      req.headers['user-agent'],
+      null,
+      true,
+      { filters: { userId, action, status, ipAddress, startDate, endDate } }
+    );
+
+    res.status(200).json({
+      success: true,
+      ...result
+    });
+
+  } catch (error) {
+    console.error('Error fetching audit logs:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch audit logs',
+      error: error.message
+    });
+  }
+};
+
+// Get security alerts (recent suspicious activities)
+const getSecurityAlerts = async (req, res) => {
+  try {
+    const { limit = 20 } = req.query;
+    
+    const alerts = await AuditLogger.getSecurityAlerts(parseInt(limit));
+
+    // Audit log admin access to security alerts
+    await AuditLogger.logAdminAction(
+      { _id: req.user._id, username: req.user.username, role: req.user.role },
+      'security_alerts_accessed',
+      '/api/admin/security-alerts',
+      'GET',
+      req.ip || req.connection.remoteAddress,
+      req.headers['user-agent']
+    );
+
+    res.status(200).json({
+      success: true,
+      alerts
+    });
+
+  } catch (error) {
+    console.error('Error fetching security alerts:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch security alerts',
+      error: error.message
+    });
+  }
+};
+
+// Get audit statistics for dashboard
+const getAuditStats = async (req, res) => {
+  try {
+    const { days = 7 } = req.query;
+    const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+    // Get basic stats
+    const totalLogs = await AuditLogger.getAuditLogs({
+      startDate: startDate.toISOString(),
+      page: 1,
+      limit: 1
+    });
+
+    // Get action breakdown
+    const actionStats = await AuditLog.aggregate([
+      { $match: { timestamp: { $gte: startDate } } },
+      { $group: { _id: '$action', count: { $sum: 1 } } },
+      { $sort: { count: -1 } },
+      { $limit: 10 }
+    ]);
+
+    // Get status breakdown
+    const statusStats = await AuditLog.aggregate([
+      { $match: { timestamp: { $gte: startDate } } },
+      { $group: { _id: '$status', count: { $sum: 1 } } }
+    ]);
+
+    // Get IP address stats (top IPs)
+    const ipStats = await AuditLog.aggregate([
+      { $match: { timestamp: { $gte: startDate } } },
+      { $group: { _id: '$ipAddress', count: { $sum: 1 } } },
+      { $sort: { count: -1 } },
+      { $limit: 10 }
+    ]);
+
+    // Get daily activity
+    const dailyActivity = await AuditLog.aggregate([
+      { $match: { timestamp: { $gte: startDate } } },
+      {
+        $group: {
+          _id: {
+            year: { $year: '$timestamp' },
+            month: { $month: '$timestamp' },
+            day: { $dayOfMonth: '$timestamp' }
+          },
+          count: { $sum: 1 }
+        }
+      },
+      { $sort: { '_id.year': 1, '_id.month': 1, '_id.day': 1 } }
+    ]);
+
+    res.status(200).json({
+      success: true,
+      stats: {
+        totalLogs: totalLogs.total,
+        actionBreakdown: actionStats,
+        statusBreakdown: statusStats,
+        topIPs: ipStats,
+        dailyActivity
+      }
+    });
+
+  } catch (error) {
+    console.error('Error fetching audit stats:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch audit statistics',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   listAllUsers,
   getUserDetails,
@@ -732,5 +924,9 @@ module.exports = {
   getOrderDetails,
   updateOrderStatus,
   deleteOrder,
-  getOrderStats
+  getOrderStats,
+  // Audit log functions
+  getAuditLogs,
+  getSecurityAlerts,
+  getAuditStats
 };
