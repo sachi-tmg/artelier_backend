@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 
 const express = require("express");
+const helmet = require("helmet");
 const connectDB = require("./config/db");
 const user_router = require("./routes/user_route");
 const creation_router = require("./routes/creation_route");
@@ -25,6 +26,49 @@ const cors = require("cors");
 const app = express();
 
 connectDB();
+
+// Helmet security configuration - protecting against common web vulnerabilities
+app.use(helmet({
+  // Content Security Policy - configured for your image uploads and frontend
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+      fontSrc: ["'self'", "https://fonts.gstatic.com"],
+      imgSrc: ["'self'", "data:", "https:", "blob:"], // Allow images from various sources
+      scriptSrc: ["'self'"],
+      objectSrc: ["'none'"],
+      baseUri: ["'self'"],
+      connectSrc: ["'self'", "https://localhost:5173", "https://localhost:3000"], // Allow connections to your frontend and backend
+      frameSrc: ["'none'"],
+    },
+  },
+  
+  // Cross-Origin Embedder Policy - disabled for CORS compatibility
+  crossOriginEmbedderPolicy: false,
+  
+  // Cross-Origin Resource Policy - disabled for CORS compatibility  
+  crossOriginResourcePolicy: false,
+  
+  // Strict Transport Security - enforce HTTPS
+  hsts: {
+    maxAge: 31536000, // 1 year
+    includeSubDomains: true,
+    preload: true
+  },
+  
+  // Hide X-Powered-By header
+  hidePoweredBy: true,
+  
+  // X-Frame-Options - prevent clickjacking
+  frameguard: { action: 'deny' },
+  
+  // X-Content-Type-Options - prevent MIME sniffing
+  noSniff: true,
+  
+  // Referrer Policy
+  referrerPolicy: { policy: "same-origin" }
+}));
 
 const httpsOptions = {
   key: fs.readFileSync('C:/Users/sachi/certs/localhost-key.pem'),
@@ -75,7 +119,11 @@ app.use("/public", express.static('public'));
 
 const port = process.env.PORT || 3000;
 const server = https.createServer(httpsOptions, app).listen(port, () => {
-    console.log(`Server running at HTTPS://localhost:${port}`); // Changed to HTTPS
+    console.log(`Server running at HTTPS://localhost:${port}`);
+    console.log(`🛡️  Helmet security headers active`);
+    console.log(`🔒 HTTPS enforced with HSTS`);
+    console.log(`🚫 Clickjacking protection enabled`);
+    console.log(`📝 Content Security Policy configured`);
 });
 
 
