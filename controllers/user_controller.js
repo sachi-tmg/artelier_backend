@@ -12,6 +12,7 @@ const AuditLogger = require('../services/audit_logger');
 const pendingSignups = {};
 const speakeasy = require('speakeasy');
 const QRCode = require('qrcode');
+const { checkPasswordReuse, addPasswordToHistory } = require('../middleware/password_security');
 
 const register = async (req, res) => {
   try {
@@ -44,7 +45,7 @@ const register = async (req, res) => {
       return res.status(409).json({ message: "Email already registered." });
     }
 
-    const hashedPassword = await bcrypt.hash(password, 10);
+    const hashedPassword = await bcrypt.hash(password, 12);
     const username = await generateUsername(email);
     const verificationToken = crypto.randomBytes(20).toString("hex");
     const verificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
@@ -53,6 +54,9 @@ const register = async (req, res) => {
       fullName,
       email,
       password: hashedPassword,
+      passwordHistory: [], // Initialize empty history
+      passwordExpiresAt: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000), // 90 days
+      passwordLastChanged: new Date(),
       username,
       emailVerificationToken: verificationToken,
       emailVerificationExpires: verificationExpires,
@@ -892,70 +896,238 @@ const updateProfile = async (req, res) => {
 };
 
 
+// const updatePassword = async (req, res) => {
+//   try {
+//     const { currentPassword, newPassword } = req.body;
+//     const userId = req.user.userId;
+
+//     // Basic validation
+//     if (!currentPassword || !newPassword) {
+//       return res.status(400).json({ message: "Current password and new password are required" });
+//     }
+
+//     // Enhanced password validation for new password
+//     const passwordValidation = validatePassword(newPassword);
+//     if (!passwordValidation.isValid) {
+//       return res.status(400).json({ 
+//         message: "New password does not meet security requirements.",
+//         errors: passwordValidation.errors,
+//         strength: passwordValidation.strength
+//       });
+//     }
+
+//     const user = await User.findById(userId).select('+password');
+//     if (!user) {
+//       return res.status(404).json({ message: "User not found" });
+//     }
+
+//     const isMatch = await bcrypt.compare(currentPassword, user.password);
+//     if (!isMatch) {
+//       return res.status(400).json({ message: "Current password is incorrect" });
+//     }
+
+//     // Check if new password is the same as current password
+//     const isSamePassword = await bcrypt.compare(newPassword, user.password);
+//     if (isSamePassword) {
+//       return res.status(400).json({ message: "New password must be different from current password" });
+//     }
+
+//     const hashedPassword = await bcrypt.hash(newPassword, 10);
+//     user.password = hashedPassword;
+//     await user.save();
+
+//     // Audit log password change
+//     await AuditLogger.logPasswordChange(
+//       { _id: user._id, username: user.username, role: user.role },
+//       req.ip || req.connection.remoteAddress,
+//       req.headers['user-agent'],
+//       true
+//     );
+
+//     res.status(200).json({ 
+//       success: true, 
+//       message: "Password updated successfully",
+//       passwordStrength: passwordValidation.strength
+//     });
+//   } catch (error) {
+//     // Audit log failed password change
+//     await AuditLogger.logPasswordChange(
+//       { _id: req.user.userId, username: req.user.username, role: req.user.role },
+//       req.ip || req.connection.remoteAddress,
+//       req.headers['user-agent'],
+//       false,
+//       error.message
+//     );
+
+//     res.status(500).json({ message: "Error updating password", error: error.message });
+//   }
+// };
+
 const updatePassword = async (req, res) => {
   try {
     const { currentPassword, newPassword } = req.body;
     const userId = req.user.userId;
 
-    // Basic validation
+    // Validate input
     if (!currentPassword || !newPassword) {
-      return res.status(400).json({ message: "Current password and new password are required" });
-    }
-
-    // Enhanced password validation for new password
-    const passwordValidation = validatePassword(newPassword);
-    if (!passwordValidation.isValid) {
-      return res.status(400).json({ 
-        message: "New password does not meet security requirements.",
-        errors: passwordValidation.errors,
-        strength: passwordValidation.strength
+      return res.status(400).json({
+        success: false,
+        message: "Current password and new password are required"
       });
     }
 
+    // Get user with password
     const user = await User.findById(userId).select('+password');
     if (!user) {
-      return res.status(404).json({ message: "User not found" });
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
     }
 
-    const isMatch = await bcrypt.compare(currentPassword, user.password);
-    if (!isMatch) {
-      return res.status(400).json({ message: "Current password is incorrect" });
+    // Verify current password
+    const isCurrentPasswordValid = await bcrypt.compare(currentPassword, user.password);
+    if (!isCurrentPasswordValid) {
+      return res.status(400).json({
+        success: false,
+        message: "Current password is incorrect"
+      });
     }
 
-    // Check if new password is the same as current password
-    const isSamePassword = await bcrypt.compare(newPassword, user.password);
-    if (isSamePassword) {
-      return res.status(400).json({ message: "New password must be different from current password" });
+    // Validate new password strength
+    const passwordValidation = validatePassword(newPassword);
+    if (!passwordValidation.isValid) {
+      return res.status(400).json({
+        success: false,
+        message: "Password does not meet security requirements",
+        details: passwordValidation.errors
+      });
     }
 
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
-    user.password = hashedPassword;
+    // Check password reuse
+    try {
+      await checkPasswordReuse(userId, newPassword);
+    } catch (error) {
+      return res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    // Hash new password
+    const saltRounds = 12;
+    const hashedNewPassword = await bcrypt.hash(newPassword, saltRounds);
+
+    // Add old password to history before updating
+    await addPasswordToHistory(userId, user.password);
+
+    // Update password
+    user.password = hashedNewPassword;
+    user.passwordLastChanged = new Date();
+    user.passwordExpiresAt = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000); // 90 days
+    user.mustChangePassword = false;
+
     await user.save();
 
-    // Audit log password change
-    await AuditLogger.logPasswordChange(
-      { _id: user._id, username: user.username, role: user.role },
-      req.ip || req.connection.remoteAddress,
-      req.headers['user-agent'],
-      true
-    );
+    // Log the password change
+    if (req.auditLogger) {
+      await req.auditLogger.log('password_changed', {
+        message: 'User changed password',
+        metadata: {
+          passwordStrength: passwordValidation.strength,
+          expiresAt: user.passwordExpiresAt
+        }
+      });
+    }
 
-    res.status(200).json({ 
-      success: true, 
+    res.status(200).json({
+      success: true,
       message: "Password updated successfully",
-      passwordStrength: passwordValidation.strength
+      passwordExpiresAt: user.passwordExpiresAt
     });
-  } catch (error) {
-    // Audit log failed password change
-    await AuditLogger.logPasswordChange(
-      { _id: req.user.userId, username: req.user.username, role: req.user.role },
-      req.ip || req.connection.remoteAddress,
-      req.headers['user-agent'],
-      false,
-      error.message
-    );
 
-    res.status(500).json({ message: "Error updating password", error: error.message });
+  } catch (error) {
+    console.error('Password update error:', error);
+    
+    if (req.auditLogger) {
+      await req.auditLogger.log('password_change_failed', {
+        message: 'Password change attempt failed',
+        metadata: { error: error.message }
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      message: "Internal server error"
+    });
+  }
+};
+
+// Add function to force password change
+const forcePasswordChange = async (req, res) => {
+  try {
+    const { userId } = req.body;
+    
+    // Check if user is admin
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: "Access denied"
+      });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
+    }
+
+    user.mustChangePassword = true;
+    user.passwordExpiresAt = new Date(); // Expire immediately
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: "User will be required to change password on next login"
+    });
+
+  } catch (error) {
+    console.error('Force password change error:', error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error"
+    });
+  }
+};
+
+// Add function to check password expiry status
+const checkPasswordStatus = async (req, res) => {
+  try {
+    const user = await User.findById(req.user.userId).select('+passwordExpiresAt +mustChangePassword +passwordLastChanged');
+    
+    const now = new Date();
+    const daysUntilExpiry = user.passwordExpiresAt ? 
+      Math.ceil((user.passwordExpiresAt - now) / (1000 * 60 * 60 * 24)) : null;
+
+    res.status(200).json({
+      success: true,
+      passwordStatus: {
+        mustChangePassword: user.mustChangePassword,
+        passwordExpiresAt: user.passwordExpiresAt,
+        daysUntilExpiry: daysUntilExpiry,
+        passwordLastChanged: user.passwordLastChanged,
+        isExpired: user.passwordExpiresAt && now > user.passwordExpiresAt
+      }
+    });
+
+  } catch (error) {
+    console.error('Password status check error:', error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error"
+    });
   }
 };
 
@@ -1624,6 +1796,8 @@ module.exports = {
   uploadProfile,
   uploadCover,
   updatePassword,
+  forcePasswordChange,
+  checkPasswordStatus,
   updateNotifications,
   deleteAccount,
   searchUsers,

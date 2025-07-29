@@ -7,9 +7,8 @@ const {
 } = require("../controllers/creation_controller");
 const uploadsProf = require("../middleware/upload_profile.js");
 const uploadsCov = require("../middleware/upload_cover.js");
-const { verifyCaptcha, verifyOptionalCaptcha } = require("../middleware/captcha_middleware");
-const { conditionalCaptcha, recordFailedAttempt, clearFailedAttempts, getRiskStats } = require("../middleware/risk_assessment");
 const { trackLoginResult, trackRegistrationResult, trackPasswordResetResult } = require("../middleware/response_tracker");
+const { checkPasswordExpiry } = require('../middleware/password_security');
 const router = express.Router();
 
 // Enhanced Rate Limiting
@@ -60,9 +59,10 @@ const authLimiter = rateLimit({
   max: 3 // More strict limits for password reset
 });
 
-router.post("/registerUser", registrationLimiter, verifyCaptcha, trackRegistrationResult(userController.register));
-router.post("/login", loginLimiter, conditionalCaptcha({ action: 'login' }), trackLoginResult(userController.login));
-router.post("/verify-mfa", mfaLimiter, verifyOptionalCaptcha, userController.verifyMfa);
+// Routes - removed all CAPTCHA middleware references
+router.post("/registerUser", registrationLimiter, trackRegistrationResult(userController.register));
+router.post("/login", loginLimiter, trackLoginResult(userController.login));
+router.post("/verify-mfa", mfaLimiter, userController.verifyMfa);
 router.post("/check-password-strength", userController.checkPasswordStrength);
 router.post("/logout", (req, res) => {
   res.clearCookie("token", {
@@ -79,19 +79,23 @@ router.post("/check-follow", verifyJWT, userController.checkFollowStatus);
 router.get("/me", verifyJWT, userController.getCurrentUser);
 router.put("/update-profile", verifyJWT, userController.updateProfile);
 router.put("/update-password", verifyJWT, userController.updatePassword);
+router.get("/password-status", verifyJWT, userController.checkPasswordStatus);
+router.post("/admin/force-password-change", verifyJWT, adminAuth, userController.forcePasswordChange);
 router.put("/update-notifications", verifyJWT, userController.updateNotifications);
 router.post("/upload-profile-picture", verifyJWT, uploadsProf, userController.uploadProfile);
 router.post("/upload-cover-picture", verifyJWT, uploadsCov, userController.uploadCover);
 router.delete("/delete-account", verifyJWT, userController.deleteAccount);
 router.post('/search-users', userController.searchUsers);
-router.post('/auth/forgot-password', passwordResetLimiter, verifyCaptcha, trackPasswordResetResult(userController.sendPasswordResetEmail));
-router.post('/auth/reset-password', passwordResetLimiter, verifyCaptcha, trackPasswordResetResult(userController.resetPassword));
-router.post("/send-signup-otp", verifyCaptcha, userController.sendSignupOtp);
-router.post("/verify-signup-otp", verifyOptionalCaptcha, userController.verifySignupOtp);
+router.post('/auth/forgot-password', passwordResetLimiter, trackPasswordResetResult(userController.sendPasswordResetEmail));
+router.post('/auth/reset-password', passwordResetLimiter, trackPasswordResetResult(userController.resetPassword));
+router.post("/send-signup-otp", userController.sendSignupOtp);
+router.post("/verify-signup-otp", userController.verifySignupOtp);
 router.get('/verify-email', userController.verifyEmail);
 router.post('/setup/initial-admin', userController.createInitialAdmin);
 
-// Admin-only risk assessment stats
-router.get('/admin/risk-stats', adminAuth, getRiskStats);
+router.use(verifyJWT, checkPasswordExpiry);
+
+// Admin-only risk assessment stats - need to import getRiskStats
+// router.get('/admin/risk-stats', adminAuth, getRiskStats);
 
 module.exports = router;

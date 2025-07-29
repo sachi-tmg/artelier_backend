@@ -17,6 +17,25 @@ const userSchema = new mongoose.Schema({
     password: {
         type: String,
         required: true,
+        select: false
+    },
+    passwordHistory: [{
+        hash: String,
+        createdAt: { type: Date, default: Date.now }
+    }],
+    passwordExpiresAt: {
+        type: Date,
+        default: function() {
+        return new Date(Date.now() + 90 * 24 * 60 * 60 * 1000); // 90 days from now
+        }
+    },
+    mustChangePassword: {
+        type: Boolean,
+        default: false
+    },
+    passwordLastChanged: {
+        type: Date,
+        default: Date.now
     },
     username: {
         type: String,
