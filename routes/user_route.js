@@ -1,12 +1,15 @@
 const express = require("express");
 const rateLimit = require("express-rate-limit");
-const { adminAuth } = require('../middleware/admin_auth');
+const adminAuth = require('../middleware/admin_auth');
 const userController = require("../controllers/user_controller");
 const {
     verifyJWT,
 } = require("../controllers/creation_controller");
 const uploadsProf = require("../middleware/upload_profile.js");
 const uploadsCov = require("../middleware/upload_cover.js");
+const { verifyCaptcha, verifyOptionalCaptcha } = require("../middleware/captcha_middleware");
+const { conditionalCaptcha, recordFailedAttempt, clearFailedAttempts, getRiskStats } = require("../middleware/risk_assessment");
+const { trackLoginResult, trackRegistrationResult, trackPasswordResetResult } = require("../middleware/response_tracker");
 const router = express.Router();
 
 // Enhanced Rate Limiting
@@ -57,15 +60,15 @@ const authLimiter = rateLimit({
   max: 3 // More strict limits for password reset
 });
 
-router.post("/registerUser", registrationLimiter, userController.register);
-router.post("/login", loginLimiter, userController.login);
-router.post("/verify-mfa", mfaLimiter, userController.verifyMfa);
+router.post("/registerUser", registrationLimiter, verifyCaptcha, trackRegistrationResult(userController.register));
+router.post("/login", loginLimiter, conditionalCaptcha({ action: 'login' }), trackLoginResult(userController.login));
+router.post("/verify-mfa", mfaLimiter, verifyOptionalCaptcha, userController.verifyMfa);
 router.post("/check-password-strength", userController.checkPasswordStrength);
 router.post("/logout", (req, res) => {
   res.clearCookie("token", {
     httpOnly: true,
     secure: true,
-    sameSite: "None",
+    sameSite: "Strict",
   });
   return res.status(200).json({ success: true, message: "Logged out successfully" });
 });
@@ -81,11 +84,14 @@ router.post("/upload-profile-picture", verifyJWT, uploadsProf, userController.up
 router.post("/upload-cover-picture", verifyJWT, uploadsCov, userController.uploadCover);
 router.delete("/delete-account", verifyJWT, userController.deleteAccount);
 router.post('/search-users', userController.searchUsers);
-router.post('/auth/forgot-password', passwordResetLimiter, userController.sendPasswordResetEmail);
-router.post('/auth/reset-password', passwordResetLimiter, userController.resetPassword);
-router.post("/send-signup-otp", userController.sendSignupOtp);
-router.post("/verify-signup-otp", userController.verifySignupOtp);
+router.post('/auth/forgot-password', passwordResetLimiter, verifyCaptcha, trackPasswordResetResult(userController.sendPasswordResetEmail));
+router.post('/auth/reset-password', passwordResetLimiter, verifyCaptcha, trackPasswordResetResult(userController.resetPassword));
+router.post("/send-signup-otp", verifyCaptcha, userController.sendSignupOtp);
+router.post("/verify-signup-otp", verifyOptionalCaptcha, userController.verifySignupOtp);
 router.get('/verify-email', userController.verifyEmail);
 router.post('/setup/initial-admin', userController.createInitialAdmin);
+
+// Admin-only risk assessment stats
+router.get('/admin/risk-stats', adminAuth, getRiskStats);
 
 module.exports = router;

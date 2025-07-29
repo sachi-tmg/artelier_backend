@@ -20,6 +20,8 @@
     "dotenv": "^16.5.0",
     "express": "^5.1.0",
     "express-rate-limit": "^8.0.1",
+    "express-recaptcha": "^5.1.0",
+    "express-session": "^1.18.2",
     "joi": "^17.13.3",
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.16.0",
@@ -28,6 +30,7 @@
     "qrcode": "^1.5.4",
     "recharts": "^3.1.0",
     "speakeasy": "^2.0.0",
+    "svg-captcha": "^1.4.0",
     "uuid": "^11.1.0"
   },
   "devDependencies": {

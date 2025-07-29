@@ -8,6 +8,7 @@ const crypto = require('crypto');
 const mongoose = require('mongoose');
 const nodemailer = require('nodemailer');
 const { validatePassword } = require('../utils/password_validator');
+const AuditLogger = require('../services/audit_logger');
 const pendingSignups = {};
 const speakeasy = require('speakeasy');
 const QRCode = require('qrcode');
@@ -72,6 +73,14 @@ const register = async (req, res) => {
 
     await newUser.save(); // ✅ Save only after email sent
 
+    // Audit log account creation
+    await AuditLogger.logAccountCreation(
+      { _id: newUser._id, username: newUser.username, role: newUser.role },
+      req.ip || req.connection.remoteAddress,
+      req.headers['user-agent'],
+      true
+    );
+
     return res.status(201).json({
       success: true,
       message: "Verification email sent. Please check your inbox to complete registration."
@@ -79,6 +88,16 @@ const register = async (req, res) => {
 
   } catch (err) {
     console.error("🚨 Registration Error:", err.message);
+    
+    // Audit log failed registration
+    await AuditLogger.logAccountCreation(
+      null,
+      req.ip || req.connection.remoteAddress,
+      req.headers['user-agent'],
+      false,
+      err.message
+    );
+
     return res.status(500).json({
       message: "Server error during registration.",
       error: err.message
@@ -250,10 +269,20 @@ const login = async (req, res) => {
 
     if (!user) {
       await LoginAttempt.create({ email, ip, successful: false });
+      // Audit log failed login attempt
+      await AuditLogger.logLogin(null, ip, req.headers['user-agent'], false, "Invalid email or password");
       return res.status(401).json({ success: false, message: "Invalid email or password" });
     }
 
     if (user.isBanned) {
+      // Audit log banned user attempt
+      await AuditLogger.logSuspiciousActivity(
+        { _id: user._id, username: user.username, role: user.role },
+        'banned_user_login_attempt',
+        ip,
+        req.headers['user-agent'],
+        { resource: '/api/user/login', method: 'POST' }
+      );
       return res.status(403).json({
         success: false,
         message: "Your account has been permanently banned due to repeated failed login attempts."
@@ -279,9 +308,30 @@ const login = async (req, res) => {
       if (newAttempts >= MAX_ATTEMPTS) {
         updateFields.loginLockUntil = Date.now() + LOCKOUT_TIME;
         updateFields.isBanned = true; // Permanent ban
+        
+        // Audit log account lockout
+        await AuditLogger.log({
+          action: 'account_locked',
+          resource: '/api/user/login',
+          method: 'POST',
+          status: 'warning',
+          user: { _id: user._id, username: user.username, role: user.role },
+          ipAddress: ip,
+          userAgent: req.headers['user-agent'],
+          details: { attempts: newAttempts, lockoutTime: LOCKOUT_TIME }
+        });
       }
 
       await User.updateOne({ email }, updateFields);
+      
+      // Audit log failed login
+      await AuditLogger.logLogin(
+        { _id: user._id, username: user.username, role: user.role },
+        ip,
+        req.headers['user-agent'],
+        false,
+        "Invalid email or password"
+      );
 
       return res.status(401).json({ success: false, message: "Invalid email or password" });
     }
@@ -294,6 +344,18 @@ const login = async (req, res) => {
     // ✅ LOGIN SUCCESSFUL — reset counters
     await User.updateOne({ email }, { $set: { loginAttempts: 0, loginLockUntil: null } });
     await LoginAttempt.create({ email, ip, successful: true });
+
+    // Audit log successful login (partial - MFA still required)
+    await AuditLogger.log({
+      action: 'login_attempt',
+      resource: '/api/user/login',
+      method: 'POST',
+      status: 'info',
+      user: { _id: user._id, username: user.username, role: user.role },
+      ipAddress: ip,
+      userAgent: req.headers['user-agent'],
+      details: { stage: 'password_verified', mfaRequired: true }
+    });
 
     // MFA OTP generation
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
@@ -322,6 +384,19 @@ const login = async (req, res) => {
 
   } catch (err) {
     console.error("Login error:", err);
+    
+    // Audit log login error
+    await AuditLogger.log({
+      action: 'login_failure',
+      resource: '/api/user/login',
+      method: 'POST',
+      status: 'failure',
+      user: null,
+      ipAddress: req.ip || req.connection.remoteAddress,
+      userAgent: req.headers['user-agent'],
+      errorMessage: err.message
+    });
+
     return res.status(500).json({ success: false, message: "An error occurred during login" });
   }
 };
@@ -349,6 +424,14 @@ const verifyMfa = async (req, res) => {
 
 
     if (!isCodeMatch || isExpired) {
+      // Audit log failed MFA attempt
+      await AuditLogger.logMfaAttempt(
+        { _id: user._id, username: user.username, role: user.role },
+        req.ip || req.connection.remoteAddress,
+        req.headers['user-agent'],
+        false,
+        "Invalid or expired MFA code"
+      );
       return res.status(403).json({ message: "Invalid or expired MFA code" });
     }
 
@@ -359,6 +442,21 @@ const verifyMfa = async (req, res) => {
 
     await user.save();
 
+    // Audit log successful MFA and complete login
+    await AuditLogger.logMfaAttempt(
+      { _id: user._id, username: user.username, role: user.role },
+      req.ip || req.connection.remoteAddress,
+      req.headers['user-agent'],
+      true
+    );
+
+    await AuditLogger.logLogin(
+      { _id: user._id, username: user.username, role: user.role },
+      req.ip || req.connection.remoteAddress,
+      req.headers['user-agent'],
+      true
+    );
+
     const finalToken = jwt.sign(
       { userId: user._id, role: user.role },
       process.env.SECRET_KEY,
@@ -368,7 +466,7 @@ const verifyMfa = async (req, res) => {
     res.cookie("token", finalToken, {
       httpOnly: true,
       secure: true,
-      sameSite: "None",
+      sameSite: "Strict",
       maxAge: 24 * 60 * 60 * 1000,
     });
 
@@ -385,6 +483,19 @@ const verifyMfa = async (req, res) => {
     });
   } catch (err) {
     console.error("verifyMfa error:", err);
+    
+    // Audit log MFA error
+    await AuditLogger.log({
+      action: 'mfa_failure',
+      resource: '/api/user/verify-mfa',
+      method: 'POST',
+      status: 'failure',
+      user: null,
+      ipAddress: req.ip || req.connection.remoteAddress,
+      userAgent: req.headers['user-agent'],
+      errorMessage: err.message
+    });
+
     return res.status(500).json({ message: "Internal server error" });
   }
 };
@@ -743,6 +854,14 @@ const updateProfile = async (req, res) => {
             { new: true, runValidators: true } // 'new: true' returns the updated document; 'runValidators: true' applies schema validators
         ).select("-password"); // Exclude sensitive fields from the response
 
+        // Audit log profile update
+        await AuditLogger.logProfileUpdate(
+            { _id: userId, username: updatedUser.username, role: updatedUser.role },
+            req.ip || req.connection.remoteAddress,
+            req.headers['user-agent'],
+            Object.keys(updateFields)
+        );
+
         res.status(200).json({
             success: true,
             message: "Profile updated successfully!",
@@ -750,6 +869,16 @@ const updateProfile = async (req, res) => {
         });
     } catch (error) {
         console.error("Error updating profile:", error);
+        
+        // Audit log failed profile update
+        await AuditLogger.logProfileUpdate(
+            { _id: userId, username: req.user.username, role: req.user.role },
+            req.ip || req.connection.remoteAddress,
+            req.headers['user-agent'],
+            [],
+            false
+        );
+
         // Handle Mongoose validation errors (e.g., if a field doesn't meet schema requirements)
         if (error.name === 'ValidationError') {
             return res.status(400).json({ message: error.message, error: error.errors });
@@ -803,12 +932,29 @@ const updatePassword = async (req, res) => {
     user.password = hashedPassword;
     await user.save();
 
+    // Audit log password change
+    await AuditLogger.logPasswordChange(
+      { _id: user._id, username: user.username, role: user.role },
+      req.ip || req.connection.remoteAddress,
+      req.headers['user-agent'],
+      true
+    );
+
     res.status(200).json({ 
       success: true, 
       message: "Password updated successfully",
       passwordStrength: passwordValidation.strength
     });
   } catch (error) {
+    // Audit log failed password change
+    await AuditLogger.logPasswordChange(
+      { _id: req.user.userId, username: req.user.username, role: req.user.role },
+      req.ip || req.connection.remoteAddress,
+      req.headers['user-agent'],
+      false,
+      error.message
+    );
+
     res.status(500).json({ message: "Error updating password", error: error.message });
   }
 };
@@ -840,7 +986,11 @@ const uploadProfile = async (req, res) => {
     const userId = req.user.userId; 
 
     if (!req.file) {
-        return res.status(400).json({ message: "Please upload a file" });
+        return res.status(400).json({ 
+            success: false,
+            message: "Please select an image file to upload",
+            code: 'NO_FILE_SELECTED'
+        });
     }
 
     const baseUrl = `${req.protocol}://${req.get('host')}`;
@@ -855,12 +1005,16 @@ const uploadProfile = async (req, res) => {
         ).select("-password"); // Exclude sensitive info from the response
 
         if (!updatedUser) {
-            return res.status(404).json({ message: "User not found." });
+            return res.status(404).json({ 
+                success: false,
+                message: "User not found",
+                code: 'USER_NOT_FOUND'
+            });
         }
 
         res.status(200).json({
             success: true,
-            message: "Profile picture uploaded and updated successfully!",
+            message: "Profile picture uploaded successfully!",
             profilePictureUrl: updatedUser.profilePicture, // Send back the updated URL
             user: {
                 userId: updatedUser._id,
@@ -876,7 +1030,11 @@ const uploadProfile = async (req, res) => {
     } catch (error) {
         console.error("Error uploading or updating profile picture:", error);
         // Handle specific errors like file system issues or database errors
-        res.status(500).json({ message: "Server error during profile picture upload or update.", error: error.message });
+        res.status(500).json({ 
+            success: false,
+            message: "Server error during profile picture upload", 
+            code: 'SERVER_ERROR'
+        });
     }
 };
 
@@ -885,7 +1043,11 @@ const uploadCover = async (req, res) => {
     const userId = req.user.userId; 
 
     if (!req.file) {
-        return res.status(400).json({ message: "Please upload a file" });
+        return res.status(400).json({ 
+            success: false,
+            message: "Please select an image file to upload",
+            code: 'NO_FILE_SELECTED'
+        });
     }
 
     const baseUrl = `${req.protocol}://${req.get('host')}`;
@@ -900,12 +1062,16 @@ const uploadCover = async (req, res) => {
         ).select("-password"); // Exclude sensitive info from the response
 
         if (!updatedUser) {
-            return res.status(404).json({ message: "User not found." });
+            return res.status(404).json({ 
+                success: false,
+                message: "User not found",
+                code: 'USER_NOT_FOUND'
+            });
         }
 
         res.status(200).json({
             success: true,
-            message: "Cover picture uploaded and updated successfully!",
+            message: "Cover picture uploaded successfully!",
             coverPictureUrl: updatedUser.coverPicture, // Send back the updated URL
             user: {
                 userId: updatedUser._id,
@@ -921,7 +1087,11 @@ const uploadCover = async (req, res) => {
     } catch (error) {
         console.error("Error uploading or updating cover picture:", error);
         // Handle specific errors like file system issues or database errors
-        res.status(500).json({ message: "Server error during cover picture upload or update.", error: error.message });
+        res.status(500).json({ 
+            success: false,
+            message: "Server error during cover picture upload", 
+            code: 'SERVER_ERROR'
+        });
     }
 };
 
