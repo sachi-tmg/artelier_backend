@@ -116,7 +116,7 @@ const uploadImage = async (req, res) => {
 const findAllCreations = async (req, res) => {
     try {
         let { page } = req.body;
-        let maxLimit = 9;
+        let maxLimit = 15;
 
         // Fetch creations with populated user info
         const creations = await Creation.find({ draft: false })

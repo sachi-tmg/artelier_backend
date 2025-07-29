@@ -17,6 +17,9 @@ const commentRoutes = require('./routes/comment_route');
 const orderRoutes = require('./routes/order_route');
 const contact_route = require('./routes/contact_route');
 const admin_router = require('./routes/admin_route');
+const csrf_route = require('./routes/csrf_route');
+const auditMiddleware = require('./middleware/audit_middleware');
+const { csrfProtection } = require('./middleware/csrf_protection');
 const cors = require("cors");
 
 const app = express();
@@ -32,6 +35,8 @@ const corsOptions = {
     origin: "https://localhost:5173",
     credentials: true,
     optionSuccessStatus: 200,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-csrf-token'],
 };
 
 app.use(cors(corsOptions));
@@ -40,22 +45,31 @@ app.use(express.json());
 const cookieParser = require("cookie-parser");
 app.use(cookieParser());
 
+// Add audit middleware to log all API requests
+app.use('/api', auditMiddleware({
+  skipPaths: ['/health', '/ping', '/favicon.ico']
+}));
 
-app.use("/api/user", user_router);
-app.use("/api/creation", creation_router);
-app.use("/api/cart", cartRoutes);
-app.use('/api/admin', admin_router); 
+// CSRF protection routes (no CSRF needed for getting token)
+app.use('/api/csrf', csrf_route);
 
-app.use("/api/payment", payment_router);
-app.use("/api/favorite", favorite_router);
-app.use('/api/notifications', notificationRoutes);
-app.use('/api', like_router);
+// Apply CSRF protection to state-changing routes
+const csrfMiddleware = csrfProtection({
+  skipMethods: ['GET', 'HEAD', 'OPTIONS'],
+  headerName: 'x-csrf-token'
+});
 
-app.use('/api/comments', commentRoutes);
-
-app.use('/api/orders', orderRoutes);
-
-app.use('/api/contact', contact_route);
+app.use("/api/user", csrfMiddleware, user_router);
+app.use("/api/creation", csrfMiddleware, creation_router);
+app.use("/api/cart", csrfMiddleware, cartRoutes);
+app.use('/api/admin', csrfMiddleware, admin_router); 
+app.use("/api/payment", csrfMiddleware, payment_router);
+app.use("/api/favorite", csrfMiddleware, favorite_router);
+app.use('/api/notifications', csrfMiddleware, notificationRoutes);
+app.use('/api', csrfMiddleware, like_router);
+app.use('/api/comments', csrfMiddleware, commentRoutes);
+app.use('/api/orders', csrfMiddleware, orderRoutes);
+app.use('/api/contact', csrfMiddleware, contact_route);
 
 app.use("/public", express.static('public'));
 

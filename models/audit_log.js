@@ -24,7 +24,7 @@ const auditLogSchema = new mongoose.Schema({
     enum: [
       // Authentication actions
       'login_attempt', 'login_success', 'login_failure', 'logout',
-      'mfa_attempt', 'mfa_success', 'mfa_failure',
+      'mfa_attempt', 'mfa_success', 'mfa_failure', 'mfa_verification',
       'password_reset_request', 'password_reset_success', 'password_change',
       
       // Account management
@@ -34,6 +34,10 @@ const auditLogSchema = new mongoose.Schema({
       // Security events
       'suspicious_activity', 'rate_limit_exceeded', 'unauthorized_access_attempt',
       'admin_action_performed', 'privilege_escalation_attempt',
+      'csrf_token_generated', 'csrf_validation_failed', 'csrf_token_expired',
+      
+      // Risk assessment events
+      'failed_attempt_recorded', 'failed_attempts_cleared', 'risk_assessment_performed',
       
       // Content actions
       'creation_uploaded', 'creation_updated', 'creation_deleted',
@@ -46,6 +50,9 @@ const auditLogSchema = new mongoose.Schema({
       
       // File operations
       'file_uploaded', 'file_deleted', 'file_accessed',
+      'profile_upload_success', 'profile_upload_blocked',
+      'cover_upload_success', 'cover_upload_blocked', 
+      'creation_upload_success', 'creation_upload_blocked',
       
       // Generic resource operations (for middleware)
       'resource_accessed', 'resource_created', 'resource_updated', 'resource_deleted', 'unknown_action'
