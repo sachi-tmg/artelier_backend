@@ -22,41 +22,36 @@ const auditLogSchema = new mongoose.Schema({
     type: String,
     required: true,
     enum: [
-      // Authentication actions
-      'login_attempt', 'login_success', 'login_failure', 'logout',
-      'mfa_attempt', 'mfa_success', 'mfa_failure', 'mfa_verification',
-      'password_reset_request', 'password_reset_success', 'password_change',
-      
+      // Authentication
+      'login_attempt', 'login_success', 'logout',
+      'password_reset_request', 'password_reset_success',
+
       // Account management
-      'account_created', 'account_verified', 'account_locked', 'account_unlocked', 'account_banned',
-      'profile_updated', 'profile_picture_uploaded', 'cover_picture_uploaded',
-      
-      // Security events
-      'suspicious_activity', 'rate_limit_exceeded', 'unauthorized_access_attempt',
-      'admin_action_performed', 'privilege_escalation_attempt',
-      'csrf_token_generated', 'csrf_validation_failed', 'csrf_token_expired',
-      
-      // Risk assessment events
-      'failed_attempt_recorded', 'failed_attempts_cleared', 'risk_assessment_performed',
-      
+      'account_created', 'account_verified', 'account_locked',
+      'profile_updated',
+
+      // Security
+      'suspicious_activity', 'unauthorized_access_attempt', 'rate_limit_exceeded',
+
       // Content actions
-      'creation_uploaded', 'creation_updated', 'creation_deleted',
-      'order_placed', 'order_updated', 'payment_processed',
-      'comment_posted', 'like_added', 'follow_action',
-      
-      // Admin actions
-      'user_search', 'user_list_accessed', 'dashboard_accessed',
-      'order_status_changed', 'user_account_modified',
-      
+      'content_created', 'content_updated', 'content_deleted',
+      'comment_posted', 'like_added',
+
+      // Admin
+      'dashboard_accessed', 'user_account_modified',
+
       // File operations
-      'file_uploaded', 'file_deleted', 'file_accessed',
-      'profile_upload_success', 'profile_upload_blocked',
-      'cover_upload_success', 'cover_upload_blocked', 
-      'creation_upload_success', 'creation_upload_blocked',
-      
-      // Generic resource operations (for middleware)
-      'resource_accessed', 'resource_created', 'resource_updated', 'resource_deleted', 'unknown_action'
+      'file_uploaded', 'file_downloaded',
+
+      // Fallback
+      'unknown_action'
     ]
+  },
+  
+  // User-friendly action name for admin interface
+  actionDisplayName: {
+    type: String,
+    required: false // Will be generated automatically
   },
   
   // Request details

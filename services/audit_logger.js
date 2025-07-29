@@ -4,6 +4,85 @@ const { v4: uuidv4 } = require('uuid');
 
 class AuditLogger {
   
+  // User-friendly action mapping for non-technical admins
+  static getActionDisplayName(action, details = {}) {
+    const actionMap = {
+      // Authentication Actions
+      'login_attempt': 'User Login',
+      'login_success': 'Successful Login',
+      'login_failure': 'Failed Login',
+      'mfa_attempt': 'Two-Factor Authentication',
+      'mfa_success': 'Two-Factor Verification Success',
+      'mfa_failure': 'Two-Factor Verification Failed',
+      'logout': 'User Logout',
+      
+      // Account Management
+      'account_created': 'Account Registration',
+      'account_locked': 'Account Locked',
+      'account_unlocked': 'Account Unlocked',
+      'account_deleted': 'Account Deleted',
+      'email_verified': 'Email Verification',
+      
+      // Password Management
+      'password_changed': 'Password Changed',
+      'password_reset_requested': 'Password Reset Requested',
+      'password_reset_completed': 'Password Reset Completed',
+      'password_expired': 'Password Expired',
+      'force_password_change': 'Admin Forced Password Change',
+      
+      // Profile Management
+      'profile_updated': 'Profile Updated',
+      'profile_picture_uploaded': 'Profile Picture Changed',
+      'cover_picture_uploaded': 'Cover Picture Changed',
+      
+      // Admin Actions
+      'admin_action_performed': details.adminAction ? `Admin: ${details.adminAction}` : 'Admin Action',
+      'user_role_changed': 'User Role Changed',
+      'user_banned': 'User Banned',
+      'user_unbanned': 'User Unbanned',
+      
+      // Security Events
+      'suspicious_activity': 'Suspicious Activity Detected',
+      'brute_force_attempt': 'Brute Force Attack Detected',
+      'rate_limit_exceeded': 'Rate Limit Exceeded',
+      'unauthorized_access': 'Unauthorized Access Attempt',
+      
+      // System Access
+      'resource_accessed': 'System Access',
+      'file_uploaded': 'File Upload',
+      'file_downloaded': 'File Download',
+      'data_export': 'Data Export',
+      
+      // Social Features
+      'user_followed': 'User Followed',
+      'user_unfollowed': 'User Unfollowed',
+      'content_created': 'Content Created',
+      'content_updated': 'Content Updated',
+      'content_deleted': 'Content Deleted',
+      
+      // Payment & Orders
+      'payment_initiated': 'Payment Started',
+      'payment_completed': 'Payment Completed',
+      'payment_failed': 'Payment Failed',
+      'order_created': 'Order Created',
+      'order_cancelled': 'Order Cancelled'
+    };
+    
+    return actionMap[action] || action.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+  }
+  
+  // Get status display with icons/colors for better UI
+  static getStatusDisplay(status) {
+    const statusMap = {
+      'success': { text: 'Success', icon: '✅', color: 'green' },
+      'failure': { text: 'Failed', icon: '❌', color: 'red' },
+      'warning': { text: 'Warning', icon: '⚠️', color: 'orange' },
+      'info': { text: 'Info', icon: 'ℹ️', color: 'blue' }
+    };
+    
+    return statusMap[status] || { text: status, icon: '', color: 'gray' };
+  }
+  
   /**
    * Create an audit log entry
    * @param {Object} logData - The audit log data
@@ -33,11 +112,15 @@ class AuditLogger {
     requestId = null
   }) {
     try {
+      // Generate user-friendly action name
+      const actionDisplayName = this.getActionDisplayName(action, details);
+      
       const auditEntry = new AuditLog({
         userId: user?._id || user?.userId,
         username: user?.username,
         userRole: user?.role || 'anonymous',
         action,
+        actionDisplayName, // Add user-friendly display name
         resource,
         method,
         ipAddress,
@@ -94,7 +177,7 @@ class AuditLogger {
 
   static async logPasswordChange(user, ipAddress, userAgent, success, errorMessage = null) {
     await this.log({
-      action: 'password_change',
+      action: 'password_changed',
       resource: '/api/user/update-password',
       method: 'PUT',
       status: success ? 'success' : 'failure',
@@ -220,7 +303,7 @@ class AuditLogger {
     return criticalEvents.includes(action);
   }
 
-  // Method to get audit logs with filtering
+  // Method to get audit logs with filtering and user-friendly display
   static async getAuditLogs({
     userId = null,
     action = null,
@@ -251,10 +334,29 @@ class AuditLogger {
         .skip((page - 1) * limit)
         .limit(limit);
 
+      // Add user-friendly display names and status info
+      const enhancedLogs = logs.map(log => {
+        const logObj = log.toObject();
+        logObj.actionDisplayName = this.getActionDisplayName(log.action, log.details);
+        logObj.statusDisplay = this.getStatusDisplay(log.status);
+        
+        // Add formatted timestamp for easier reading
+        logObj.formattedTimestamp = log.timestamp.toLocaleString();
+        
+        // Simplify user info for display
+        if (logObj.userId) {
+          logObj.userDisplayName = logObj.userId.username || logObj.userId.email || 'Unknown User';
+        } else {
+          logObj.userDisplayName = logObj.username || 'Anonymous';
+        }
+        
+        return logObj;
+      });
+
       const total = await AuditLog.countDocuments(query);
 
       return {
-        logs,
+        logs: enhancedLogs,
         total,
         page,
         pages: Math.ceil(total / limit)
@@ -283,6 +385,70 @@ class AuditLogger {
       return alerts;
     } catch (error) {
       console.error('Error fetching security alerts:', error);
+      throw error;
+    }
+  }
+
+  // Get available action types for admin filters
+  static getAvailableActions() {
+    return [
+      { value: 'login_success', label: 'Successful Login' },
+      { value: 'login_failure', label: 'Failed Login' },
+      { value: 'mfa_success', label: 'Two-Factor Success' },
+      { value: 'mfa_failure', label: 'Two-Factor Failed' },
+      { value: 'account_created', label: 'Account Registration' },
+      { value: 'password_changed', label: 'Password Changed' },
+      { value: 'password_reset_requested', label: 'Password Reset Requested' },
+      { value: 'profile_updated', label: 'Profile Updated' },
+      { value: 'admin_action_performed', label: 'Admin Action' },
+      { value: 'suspicious_activity', label: 'Suspicious Activity' },
+      { value: 'account_locked', label: 'Account Locked' },
+      { value: 'file_uploaded', label: 'File Upload' },
+      { value: 'user_followed', label: 'User Followed' },
+      { value: 'payment_completed', label: 'Payment Completed' },
+      { value: 'order_created', label: 'Order Created' }
+    ];
+  }
+
+  // Get log statistics for admin dashboard
+  static async getLogStatistics(days = 7) {
+    try {
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - days);
+
+      const stats = await AuditLog.aggregate([
+        {
+          $match: {
+            timestamp: { $gte: startDate }
+          }
+        },
+        {
+          $group: {
+            _id: '$action',
+            count: { $sum: 1 },
+            successCount: {
+              $sum: { $cond: [{ $eq: ['$status', 'success'] }, 1, 0] }
+            },
+            failureCount: {
+              $sum: { $cond: [{ $eq: ['$status', 'failure'] }, 1, 0] }
+            }
+          }
+        },
+        {
+          $sort: { count: -1 }
+        }
+      ]);
+
+      // Add user-friendly names to stats
+      const enhancedStats = stats.map(stat => ({
+        ...stat,
+        actionDisplayName: this.getActionDisplayName(stat._id),
+        successRate: stat.count > 0 ? ((stat.successCount / stat.count) * 100).toFixed(1) : 0
+      }));
+
+      return enhancedStats;
+    } catch (error) {
+      console.error('Error fetching log statistics:', error);
       throw error;
     }
   }

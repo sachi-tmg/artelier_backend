@@ -912,6 +912,25 @@ const getAuditStats = async (req, res) => {
   }
 };
 
+// Get available action types for filtering
+const getAuditActionTypes = async (req, res) => {
+  try {
+    const actionTypes = AuditLogger.getAvailableActions();
+    
+    res.status(200).json({
+      success: true,
+      actionTypes
+    });
+  } catch (err) {
+    console.error("Error fetching action types:", err);
+    res.status(500).json({
+      success: false,
+      message: "Error fetching action types",
+      error: err.message
+    });
+  }
+};
+
 module.exports = {
   listAllUsers,
   getUserDetails,
@@ -927,6 +946,7 @@ module.exports = {
   getOrderStats,
   // Audit log functions
   getAuditLogs,
+  getAuditActionTypes,
   getSecurityAlerts,
   getAuditStats
 };
