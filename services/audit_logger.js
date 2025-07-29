@@ -4,19 +4,65 @@ const { v4: uuidv4 } = require('uuid');
 
 class AuditLogger {
   
+  // Only log important user actions, not technical noise
+  static IMPORTANT_ACTIONS_ONLY = [
+    // Authentication (only results, not attempts)
+    'login_success', 'login_failed', 'logout',
+    'password_reset_success', 'password_changed',
+    
+    // Account management
+    'account_created', 'account_verified', 'account_locked', 'account_deleted',
+    'profile_updated',
+    
+    // Admin actions
+    'admin_action_performed', 'user_account_modified',
+    
+    // Content actions
+    'content_created', 'content_updated', 'content_deleted',
+    'comment_posted', 'file_uploaded',
+    
+    // Security (only serious events)
+    'suspicious_activity'
+  ];
+
+  // User-friendly action mapping for non-technical admins
+  static ACTION_DISPLAY_NAMES = {
+    // Authentication
+    'login_success': 'User Login',
+    'login_failed': 'Failed Login Attempt', 
+    'logout': 'User Logout',
+    'password_changed': 'Password Changed',
+    'password_reset_success': 'Password Reset',
+    
+    // Account management
+    'account_created': 'Account Registration',
+    'account_verified': 'Email Verified',
+    'account_locked': 'Account Locked',
+    'account_deleted': 'Account Deleted',
+    'profile_updated': 'Profile Updated',
+    
+    // Content
+    'content_created': 'Content Created',
+    'content_updated': 'Content Updated',
+    'content_deleted': 'Content Deleted',
+    'comment_posted': 'Comment Posted',
+    'file_uploaded': 'File Uploaded',
+    
+    // Admin
+    'admin_action_performed': 'Admin Action',
+    'user_account_modified': 'User Account Modified',
+    
+    // Security
+    'suspicious_activity': 'Security Alert'
+  };
+
+  static getActionDisplayName(action) {
+    return this.ACTION_DISPLAY_NAMES[action] || action.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+  }
+  
   /**
-   * Create an audit log entry
+   * Create an audit log entry - Only logs important actions
    * @param {Object} logData - The audit log data
-   * @param {string} logData.action - The action being performed
-   * @param {string} logData.resource - The resource/endpoint being accessed
-   * @param {string} logData.method - HTTP method
-   * @param {string} logData.status - success/failure/warning/info
-   * @param {Object} logData.user - User information (optional)
-   * @param {string} logData.ipAddress - Client IP address
-   * @param {string} logData.userAgent - Client user agent
-   * @param {Object} logData.details - Additional context (optional)
-   * @param {string} logData.errorMessage - Error message if applicable (optional)
-   * @param {number} logData.statusCode - HTTP status code (optional)
    */
   static async log({
     action,
@@ -33,11 +79,17 @@ class AuditLogger {
     requestId = null
   }) {
     try {
+      // Skip technical/noise actions - only log important user actions
+      if (!this.IMPORTANT_ACTIONS_ONLY.includes(action)) {
+        return; // Don't log unimportant actions
+      }
+
       const auditEntry = new AuditLog({
         userId: user?._id || user?.userId,
         username: user?.username,
         userRole: user?.role || 'anonymous',
         action,
+        actionDisplayName: this.getActionDisplayName(action),
         resource,
         method,
         ipAddress,
@@ -67,7 +119,7 @@ class AuditLogger {
   // Convenience methods for common scenarios
   static async logLogin(user, ipAddress, userAgent, success, errorMessage = null) {
     await this.log({
-      action: success ? 'login_success' : 'login_failure',
+      action: success ? 'login_success' : 'login_failed',
       resource: '/api/user/login',
       method: 'POST',
       status: success ? 'success' : 'failure',
@@ -80,21 +132,36 @@ class AuditLogger {
   }
 
   static async logMfaAttempt(user, ipAddress, userAgent, success, errorMessage = null) {
-    await this.log({
-      action: success ? 'mfa_success' : 'mfa_failure',
-      resource: '/api/user/verify-mfa',
-      method: 'POST',
-      status: success ? 'success' : 'failure',
-      user,
-      ipAddress,
-      userAgent,
-      errorMessage
-    });
+    // Only log final MFA result, not intermediate steps
+    if (success) {
+      await this.log({
+        action: 'login_success',
+        resource: '/api/user/verify-mfa',
+        method: 'POST',
+        status: 'success',
+        user,
+        ipAddress,
+        userAgent,
+        details: { mfaCompleted: true, loginTime: new Date() }
+      });
+    } else {
+      await this.log({
+        action: 'login_failed',
+        resource: '/api/user/verify-mfa',
+        method: 'POST',
+        status: 'failure',
+        user,
+        ipAddress,
+        userAgent,
+        errorMessage,
+        details: { mfaFailed: true }
+      });
+    }
   }
 
   static async logPasswordChange(user, ipAddress, userAgent, success, errorMessage = null) {
     await this.log({
-      action: 'password_change',
+      action: 'password_changed',
       resource: '/api/user/update-password',
       method: 'PUT',
       status: success ? 'success' : 'failure',

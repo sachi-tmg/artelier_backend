@@ -763,14 +763,7 @@ const getAuditLogs = async (req, res) => {
       if (users.length > 0) {
         query.userId = { $in: users.map(u => u._id) };
       } else {
-        // No users found, return empty result
-        return res.status(200).json({
-          success: true,
-          logs: [],
-          total: 0,
-          page: parseInt(page),
-          pages: 0
-        });
+        return res.status(200).json({ success: true, logs: [], total: 0, page: parseInt(page), pages: 0 });
       }
     }
 
@@ -780,31 +773,10 @@ const getAuditLogs = async (req, res) => {
       limit: parseInt(limit)
     });
 
-    // Audit log admin access to audit logs
-    await AuditLogger.logAdminAction(
-      { _id: req.user._id, username: req.user.username, role: req.user.role },
-      'audit_logs_accessed',
-      '/api/admin/audit-logs',
-      'GET',
-      req.ip || req.connection.remoteAddress,
-      req.headers['user-agent'],
-      null,
-      true,
-      { filters: { userId, action, status, ipAddress, startDate, endDate } }
-    );
-
-    res.status(200).json({
-      success: true,
-      ...result
-    });
-
+    return res.status(200).json({ success: true, ...result });
   } catch (error) {
     console.error('Error fetching audit logs:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch audit logs',
-      error: error.message
-    });
+    res.status(500).json({ success: false, message: 'Failed to fetch audit logs', error: error.message });
   }
 };
 
@@ -812,31 +784,11 @@ const getAuditLogs = async (req, res) => {
 const getSecurityAlerts = async (req, res) => {
   try {
     const { limit = 20 } = req.query;
-    
     const alerts = await AuditLogger.getSecurityAlerts(parseInt(limit));
-
-    // Audit log admin access to security alerts
-    await AuditLogger.logAdminAction(
-      { _id: req.user._id, username: req.user.username, role: req.user.role },
-      'security_alerts_accessed',
-      '/api/admin/security-alerts',
-      'GET',
-      req.ip || req.connection.remoteAddress,
-      req.headers['user-agent']
-    );
-
-    res.status(200).json({
-      success: true,
-      alerts
-    });
-
+    res.status(200).json({ success: true, alerts });
   } catch (error) {
     console.error('Error fetching security alerts:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch security alerts',
-      error: error.message
-    });
+    res.status(500).json({ success: false, message: 'Failed to fetch security alerts', error: error.message });
   }
 };
 
@@ -846,14 +798,8 @@ const getAuditStats = async (req, res) => {
     const { days = 7 } = req.query;
     const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
-    // Get basic stats
-    const totalLogs = await AuditLogger.getAuditLogs({
-      startDate: startDate.toISOString(),
-      page: 1,
-      limit: 1
-    });
+    const totalLogs = await AuditLogger.getAuditLogs({ startDate: startDate.toISOString(), page: 1, limit: 1 });
 
-    // Get action breakdown
     const actionStats = await AuditLog.aggregate([
       { $match: { timestamp: { $gte: startDate } } },
       { $group: { _id: '$action', count: { $sum: 1 } } },
@@ -861,13 +807,11 @@ const getAuditStats = async (req, res) => {
       { $limit: 10 }
     ]);
 
-    // Get status breakdown
     const statusStats = await AuditLog.aggregate([
       { $match: { timestamp: { $gte: startDate } } },
       { $group: { _id: '$status', count: { $sum: 1 } } }
     ]);
 
-    // Get IP address stats (top IPs)
     const ipStats = await AuditLog.aggregate([
       { $match: { timestamp: { $gte: startDate } } },
       { $group: { _id: '$ipAddress', count: { $sum: 1 } } },
@@ -875,7 +819,6 @@ const getAuditStats = async (req, res) => {
       { $limit: 10 }
     ]);
 
-    // Get daily activity
     const dailyActivity = await AuditLog.aggregate([
       { $match: { timestamp: { $gte: startDate } } },
       {
@@ -901,21 +844,33 @@ const getAuditStats = async (req, res) => {
         dailyActivity
       }
     });
-
   } catch (error) {
-    console.error('Error fetching audit stats:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch audit statistics',
-      error: error.message
-    });
+    console.error('Error fetching audit statistics:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch audit statistics', error: error.message });
   }
 };
+
 
 // Get available action types for filtering
 const getAuditActionTypes = async (req, res) => {
   try {
-    const actionTypes = AuditLogger.getAvailableActions();
+    const actionTypes = [
+      { value: 'login_success', label: 'User Login' },
+      { value: 'login_failed', label: 'Failed Login Attempt' },
+      { value: 'logout', label: 'User Logout' },
+      { value: 'password_changed', label: 'Password Changed' },
+      { value: 'password_reset_success', label: 'Password Reset' },
+      { value: 'account_created', label: 'Account Registration' },
+      { value: 'account_verified', label: 'Email Verified' },
+      { value: 'account_locked', label: 'Account Locked' },
+      { value: 'profile_updated', label: 'Profile Updated' },
+      { value: 'content_created', label: 'Content Created' },
+      { value: 'comment_posted', label: 'Comment Posted' },
+      { value: 'file_uploaded', label: 'File Uploaded' },
+      { value: 'admin_action_performed', label: 'Admin Action' },
+      { value: 'user_account_modified', label: 'User Account Modified' },
+      { value: 'suspicious_activity', label: 'Security Alert' }
+    ];
     
     res.status(200).json({
       success: true,

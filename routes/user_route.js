@@ -2,6 +2,7 @@ const express = require("express");
 const rateLimit = require("express-rate-limit");
 const adminAuth = require('../middleware/admin_auth');
 const userController = require("../controllers/user_controller");
+const AuditLogger = require('../services/audit_logger');
 const {
     verifyJWT,
 } = require("../controllers/creation_controller");
@@ -64,13 +65,36 @@ router.post("/registerUser", registrationLimiter, trackRegistrationResult(userCo
 router.post("/login", loginLimiter, trackLoginResult(userController.login));
 router.post("/verify-mfa", mfaLimiter, userController.verifyMfa);
 router.post("/check-password-strength", userController.checkPasswordStrength);
-router.post("/logout", (req, res) => {
-  res.clearCookie("token", {
-    httpOnly: true,
-    secure: true,
-    sameSite: "Strict",
-  });
-  return res.status(200).json({ success: true, message: "Logged out successfully" });
+router.post("/logout", verifyJWT, async (req, res) => {
+  try {
+    // Log logout before clearing token
+    await AuditLogger.log({
+      action: 'logout',
+      resource: '/api/user/logout',
+      method: 'POST',
+      status: 'success',
+      user: { _id: req.user.userId, username: req.user.username, role: req.user.role },
+      ipAddress: req.ip || req.connection.remoteAddress,
+      userAgent: req.headers['user-agent'],
+      details: { logoutTime: new Date() }
+    });
+
+    res.clearCookie("token", {
+      httpOnly: true,
+      secure: true,
+      sameSite: "Strict",
+    });
+    return res.status(200).json({ success: true, message: "Logged out successfully" });
+  } catch (error) {
+    console.error("Logout error:", error);
+    // Still clear cookie even if logging fails
+    res.clearCookie("token", {
+      httpOnly: true,
+      secure: true,
+      sameSite: "Strict",
+    });
+    return res.status(200).json({ success: true, message: "Logged out successfully" });
+  }
 });
 
 router.post("/profile", userController.findProfile);

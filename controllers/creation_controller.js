@@ -2,6 +2,7 @@ const Creation = require("../models/creation");
 const User = require("../models/user"); 
 const jwt = require("jsonwebtoken");
 const { v4: uuidv4 } = require('uuid');
+const AuditLogger = require('../services/audit_logger');
 
 // Moved verifyJWT here for completeness, assuming it's in the same file or imported
 const verifyJWT = (req, res, next) => {
@@ -78,6 +79,25 @@ const publishCreation = async (req, res) => {
             // Create a new creation
             const newCreation = new Creation(creationData);
             const savedCreation = await newCreation.save();
+
+            // Log content creation (only if not a draft)
+            if (!draft) {
+                await AuditLogger.log({
+                  action: 'content_created',
+                  resource: '/api/creation/publish',
+                  method: 'POST',
+                  status: 'success',
+                  user: { _id: userId, username: user.username, role: user.role },
+                  ipAddress: req.ip || req.connection.remoteAddress,
+                  userAgent: req.headers['user-agent'],
+                  details: { 
+                    creationId: savedCreation.creation_id,
+                    title: savedCreation.title,
+                    category: savedCreation.category,
+                    creationTime: new Date()
+                  }
+                });
+            }
 
             // Increment total_posts if it's not a draft
             const incrementVal = draft ? 0 : 1;
@@ -440,6 +460,23 @@ const deleteCreation = async (req, res) => {
                 userId,
                 { $inc: { "account_info.total_posts": -1 } }
             );
+
+            // Log content deletion
+            await AuditLogger.log({
+              action: 'content_deleted',
+              resource: '/api/creation/delete',
+              method: 'DELETE',
+              status: 'success',
+              user: { _id: userId, username: req.user.username, role: req.user.role },
+              ipAddress: req.ip || req.connection.remoteAddress,
+              userAgent: req.headers['user-agent'],
+              details: { 
+                creationId: deletedCreation.creation_id,
+                title: deletedCreation.title,
+                category: deletedCreation.category,
+                deletionTime: new Date()
+              }
+            });
         }
 
         res.status(200).json({ message: "Creation deleted successfully" });

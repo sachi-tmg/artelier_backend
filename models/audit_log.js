@@ -22,29 +22,23 @@ const auditLogSchema = new mongoose.Schema({
     type: String,
     required: true,
     enum: [
-      // Authentication
-      'login_attempt', 'login_success', 'logout',
-      'password_reset_request', 'password_reset_success',
-
+      // Authentication (only results, not attempts)
+      'login_success', 'login_failed', 'logout',
+      'password_reset_success', 'password_changed',
+      
       // Account management
       'account_created', 'account_verified', 'account_locked',
       'profile_updated',
-
-      // Security
-      'suspicious_activity', 'unauthorized_access_attempt', 'rate_limit_exceeded',
-
+      
+      // Admin actions
+      'admin_action_performed', 'user_account_modified',
+      
       // Content actions
       'content_created', 'content_updated', 'content_deleted',
-      'comment_posted', 'like_added',
-
-      // Admin
-      'dashboard_accessed', 'user_account_modified',
-
-      // File operations
-      'file_uploaded', 'file_downloaded',
-
-      // Fallback
-      'unknown_action'
+      'comment_posted', 'file_uploaded',
+      
+      // Security (only serious events)
+      'suspicious_activity'
     ]
   },
   

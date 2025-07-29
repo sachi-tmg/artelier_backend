@@ -1,6 +1,7 @@
 const Comment = require('../models/comment');
 const Creation = require('../models/creation');
 const Notification = require('../models/notification');
+const AuditLogger = require('../services/audit_logger');
 
 exports.getComments = async (req, res) => {
     try {
@@ -78,6 +79,22 @@ exports.postComment = async (req, res) => {
             });
             await notification.save();
         }
+
+        // Log comment posting
+        await AuditLogger.log({
+          action: 'comment_posted',
+          resource: '/api/comment',
+          method: 'POST',
+          status: 'success',
+          user: { _id: userId, username: req.user.username, role: req.user.role },
+          ipAddress: req.ip || req.connection.remoteAddress,
+          userAgent: req.headers['user-agent'],
+          details: { 
+            creationId: creationId,
+            commentType: isReply ? 'reply' : 'comment',
+            commentTime: new Date()
+          }
+        });
 
         res.status(201).json(newComment);
     } catch (error) {

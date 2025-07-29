@@ -205,6 +205,18 @@ const verifyEmail = async (req, res) => {
     user.emailVerificationExpires = undefined;
     await user.save();
 
+    // Log successful email verification
+    await AuditLogger.log({
+      action: 'account_verified',
+      resource: '/api/user/verify-email',
+      method: 'GET',
+      status: 'success',
+      user: { _id: user._id, username: user.username, role: user.role },
+      ipAddress: req.ip || req.connection.remoteAddress,
+      userAgent: req.headers['user-agent'],
+      details: { verificationTime: new Date() }
+    });
+
     return res.status(200).json({ 
       success: true,
       message: "Email verified successfully. You can now login."
@@ -273,20 +285,26 @@ const login = async (req, res) => {
 
     if (!user) {
       await LoginAttempt.create({ email, ip, successful: false });
-      // Audit log failed login attempt
+      
+      // Only log final failed login, not the attempt
       await AuditLogger.logLogin(null, ip, req.headers['user-agent'], false, "Invalid email or password");
+      
       return res.status(401).json({ success: false, message: "Invalid email or password" });
     }
 
     if (user.isBanned) {
-      // Audit log banned user attempt
-      await AuditLogger.logSuspiciousActivity(
-        { _id: user._id, username: user.username, role: user.role },
-        'banned_user_login_attempt',
-        ip,
-        req.headers['user-agent'],
-        { resource: '/api/user/login', method: 'POST' }
-      );
+      // Log suspicious activity for banned user trying to login
+      await AuditLogger.log({
+        action: 'suspicious_activity',
+        resource: '/api/user/login',
+        method: 'POST',
+        status: 'warning',
+        user: { _id: user._id, username: user.username, role: user.role },
+        ipAddress: ip,
+        userAgent: req.headers['user-agent'],
+        details: { reason: 'banned_user_login_attempt' }
+      });
+      
       return res.status(403).json({
         success: false,
         message: "Your account has been permanently banned due to repeated failed login attempts."
@@ -313,7 +331,7 @@ const login = async (req, res) => {
         updateFields.loginLockUntil = Date.now() + LOCKOUT_TIME;
         updateFields.isBanned = true; // Permanent ban
         
-        // Audit log account lockout
+        // Log account lockout
         await AuditLogger.log({
           action: 'account_locked',
           resource: '/api/user/login',
@@ -322,13 +340,13 @@ const login = async (req, res) => {
           user: { _id: user._id, username: user.username, role: user.role },
           ipAddress: ip,
           userAgent: req.headers['user-agent'],
-          details: { attempts: newAttempts, lockoutTime: LOCKOUT_TIME }
+          details: { attempts: newAttempts, reason: 'too_many_failed_attempts' }
         });
       }
 
       await User.updateOne({ email }, updateFields);
       
-      // Audit log failed login
+      // Log failed login
       await AuditLogger.logLogin(
         { _id: user._id, username: user.username, role: user.role },
         ip,
@@ -349,18 +367,7 @@ const login = async (req, res) => {
     await User.updateOne({ email }, { $set: { loginAttempts: 0, loginLockUntil: null } });
     await LoginAttempt.create({ email, ip, successful: true });
 
-    // Audit log successful login (partial - MFA still required)
-    await AuditLogger.log({
-      action: 'login_attempt',
-      resource: '/api/user/login',
-      method: 'POST',
-      status: 'info',
-      user: { _id: user._id, username: user.username, role: user.role },
-      ipAddress: ip,
-      userAgent: req.headers['user-agent'],
-      details: { stage: 'password_verified', mfaRequired: true }
-    });
-
+    // Don't log yet - wait for MFA completion
     // MFA OTP generation
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     const otpExpires = new Date(Date.now() + 15 * 60 * 1000); // 15 mins
@@ -389,17 +396,8 @@ const login = async (req, res) => {
   } catch (err) {
     console.error("Login error:", err);
     
-    // Audit log login error
-    await AuditLogger.log({
-      action: 'login_failure',
-      resource: '/api/user/login',
-      method: 'POST',
-      status: 'failure',
-      user: null,
-      ipAddress: req.ip || req.connection.remoteAddress,
-      userAgent: req.headers['user-agent'],
-      errorMessage: err.message
-    });
+    // Log login error
+    await AuditLogger.logLogin(null, req.ip || req.connection.remoteAddress, req.headers['user-agent'], false, err.message);
 
     return res.status(500).json({ success: false, message: "An error occurred during login" });
   }
@@ -428,7 +426,7 @@ const verifyMfa = async (req, res) => {
 
 
     if (!isCodeMatch || isExpired) {
-      // Audit log failed MFA attempt
+      // Log failed MFA attempt
       await AuditLogger.logMfaAttempt(
         { _id: user._id, username: user.username, role: user.role },
         req.ip || req.connection.remoteAddress,
@@ -446,15 +444,8 @@ const verifyMfa = async (req, res) => {
 
     await user.save();
 
-    // Audit log successful MFA and complete login
+    // Log successful MFA completion (final login success)
     await AuditLogger.logMfaAttempt(
-      { _id: user._id, username: user.username, role: user.role },
-      req.ip || req.connection.remoteAddress,
-      req.headers['user-agent'],
-      true
-    );
-
-    await AuditLogger.logLogin(
       { _id: user._id, username: user.username, role: user.role },
       req.ip || req.connection.remoteAddress,
       req.headers['user-agent'],
@@ -488,17 +479,8 @@ const verifyMfa = async (req, res) => {
   } catch (err) {
     console.error("verifyMfa error:", err);
     
-    // Audit log MFA error
-    await AuditLogger.log({
-      action: 'mfa_failure',
-      resource: '/api/user/verify-mfa',
-      method: 'POST',
-      status: 'failure',
-      user: null,
-      ipAddress: req.ip || req.connection.remoteAddress,
-      userAgent: req.headers['user-agent'],
-      errorMessage: err.message
-    });
+    // Log MFA error as failed login
+    await AuditLogger.logLogin(null, req.ip || req.connection.remoteAddress, req.headers['user-agent'], false, err.message);
 
     return res.status(500).json({ message: "Internal server error" });
   }
@@ -582,6 +564,22 @@ const createAdminUser = async (req, res) => {
     });
 
     await newAdmin.save();
+
+    // Log admin user creation
+    await AuditLogger.log({
+      action: 'account_created',
+      resource: '/api/admin/users',
+      method: 'POST',
+      status: 'success',
+      user: { _id: newAdmin._id, username: newAdmin.username, role: newAdmin.role },
+      ipAddress: req.ip || req.connection.remoteAddress,
+      userAgent: req.headers['user-agent'],
+      details: { 
+        accountType: 'admin',
+        createdBy: req.user.userId,
+        creationTime: new Date()
+      }
+    });
 
     return res.status(201).json({
       success: true,
@@ -859,12 +857,19 @@ const updateProfile = async (req, res) => {
         ).select("-password"); // Exclude sensitive fields from the response
 
         // Audit log profile update
-        await AuditLogger.logProfileUpdate(
-            { _id: userId, username: updatedUser.username, role: updatedUser.role },
-            req.ip || req.connection.remoteAddress,
-            req.headers['user-agent'],
-            Object.keys(updateFields)
-        );
+        await AuditLogger.log({
+          action: 'profile_updated',
+          resource: '/api/user/update-profile',
+          method: 'PUT',
+          status: 'success',
+          user: { _id: updatedUser._id, username: updatedUser.username, role: updatedUser.role },
+          ipAddress: req.ip || req.connection.remoteAddress,
+          userAgent: req.headers['user-agent'],
+          details: { 
+            updatedFields: Object.keys(updateFields),
+            updateTime: new Date()
+          }
+        });
 
         res.status(200).json({
             success: true,
@@ -875,13 +880,20 @@ const updateProfile = async (req, res) => {
         console.error("Error updating profile:", error);
         
         // Audit log failed profile update
-        await AuditLogger.logProfileUpdate(
-            { _id: userId, username: req.user.username, role: req.user.role },
-            req.ip || req.connection.remoteAddress,
-            req.headers['user-agent'],
-            [],
-            false
-        );
+        await AuditLogger.log({
+          action: 'profile_updated',
+          resource: '/api/user/update-profile',
+          method: 'PUT',
+          status: 'failure',
+          user: { _id: req.user.userId, username: req.user.username, role: req.user.role },
+          ipAddress: req.ip || req.connection.remoteAddress,
+          userAgent: req.headers['user-agent'],
+          errorMessage: error.message,
+          details: { 
+            attemptedFields: Object.keys(updateFields || {}),
+            updateTime: new Date()
+          }
+        });
 
         // Handle Mongoose validation errors (e.g., if a field doesn't meet schema requirements)
         if (error.name === 'ValidationError') {
@@ -1030,15 +1042,20 @@ const updatePassword = async (req, res) => {
     await user.save();
 
     // Log the password change
-    if (req.auditLogger) {
-      await req.auditLogger.log('password_changed', {
-        message: 'User changed password',
-        metadata: {
-          passwordStrength: passwordValidation.strength,
-          expiresAt: user.passwordExpiresAt
-        }
-      });
-    }
+    await AuditLogger.log({
+      action: 'password_changed',
+      resource: '/api/user/update-password',
+      method: 'PUT',
+      status: 'success',
+      user: { _id: user._id, username: user.username, role: user.role },
+      ipAddress: req.ip || req.connection.remoteAddress,
+      userAgent: req.headers['user-agent'],
+      details: { 
+        passwordStrength: passwordValidation.strength,
+        expiresAt: user.passwordExpiresAt,
+        changeTime: new Date()
+      }
+    });
 
     res.status(200).json({
       success: true,
@@ -1184,6 +1201,22 @@ const uploadProfile = async (req, res) => {
             });
         }
 
+        // Log profile picture upload
+        await AuditLogger.log({
+          action: 'file_uploaded',
+          resource: '/api/user/upload-profile-picture',
+          method: 'POST',
+          status: 'success',
+          user: { _id: updatedUser._id, username: updatedUser.username, role: updatedUser.role },
+          ipAddress: req.ip || req.connection.remoteAddress,
+          userAgent: req.headers['user-agent'],
+          details: { 
+            fileType: 'profile_picture',
+            fileName: req.file.filename,
+            uploadTime: new Date()
+          }
+        });
+
         res.status(200).json({
             success: true,
             message: "Profile picture uploaded successfully!",
@@ -1241,6 +1274,22 @@ const uploadCover = async (req, res) => {
             });
         }
 
+        // Log cover picture upload
+        await AuditLogger.log({
+          action: 'file_uploaded',
+          resource: '/api/user/upload-cover-picture',
+          method: 'POST',
+          status: 'success',
+          user: { _id: updatedUser._id, username: updatedUser.username, role: updatedUser.role },
+          ipAddress: req.ip || req.connection.remoteAddress,
+          userAgent: req.headers['user-agent'],
+          details: { 
+            fileType: 'cover_picture',
+            fileName: req.file.filename,
+            uploadTime: new Date()
+          }
+        });
+
         res.status(200).json({
             success: true,
             message: "Cover picture uploaded successfully!",
@@ -1270,9 +1319,29 @@ const uploadCover = async (req, res) => {
 const deleteAccount = async (req, res) => {
   try {
     const userId = req.user.userId;
+    
+    // Get user info before deletion for logging
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    // Log account deletion before deleting
+    await AuditLogger.log({
+      action: 'account_deleted',
+      resource: '/api/user/delete-account',
+      method: 'DELETE',
+      status: 'success',
+      user: { _id: user._id, username: user.username, role: user.role },
+      ipAddress: req.ip || req.connection.remoteAddress,
+      userAgent: req.headers['user-agent'],
+      details: { deletionTime: new Date(), email: user.email }
+    });
+
     await User.findByIdAndDelete(userId);
     res.status(200).json({ success: true, message: "Account deleted successfully" });
   } catch (error) {
+    console.error('Account deletion error:', error);
     res.status(500).json({ message: "Error deleting account", error: error.message });
   }
 };
@@ -1626,6 +1695,14 @@ const verifySignupOtp = async (req, res) => {
 
     await newUser.save();
     delete pendingSignups[email];
+
+    // Log successful account creation
+    await AuditLogger.logAccountCreation(
+      { _id: newUser._id, username: newUser.username, role: newUser.role },
+      req.ip || req.connection.remoteAddress,
+      req.headers['user-agent'],
+      true
+    );
 
     // Generate JWT token for immediate login
     const token = jwt.sign(
