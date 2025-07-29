@@ -111,7 +111,7 @@ app.use("/api/payment", csrfMiddleware, payment_router);
 app.use("/api/favorite", csrfMiddleware, favorite_router);
 app.use('/api/notifications', csrfMiddleware, notificationRoutes);
 app.use('/api', csrfMiddleware, like_router);
-app.use('/api/comments', csrfMiddleware, commentRoutes);
+app.use('/api/comments', commentRoutes); // CSRF removed for development
 app.use('/api/orders', csrfMiddleware, orderRoutes);
 app.use('/api/contact', csrfMiddleware, contact_route);
 

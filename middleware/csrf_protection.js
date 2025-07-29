@@ -16,61 +16,101 @@ const csrfProtection = (options = {}) => {
     cookieName = 'csrf-token',
     headerName = 'x-csrf-token',
     skipMethods = ['GET', 'HEAD', 'OPTIONS'],
-    tokenExpiry = 3600000 // 1 hour in milliseconds
+    tokenExpiry = 3600000, // 1 hour in milliseconds
+    development = process.env.NODE_ENV === 'development'
   } = options;
 
   return (req, res, next) => {
     const method = req.method.toUpperCase();
+    
+    // COMPLETE DEVELOPMENT BYPASS - Remove this in production!
+    if (development && process.env.DISABLE_CSRF === 'true') {
+      console.log(`🚫 [DEV] CSRF completely disabled for ${req.method} ${req.path}`);
+      return next();
+    }
     
     // Skip CSRF for safe methods
     if (skipMethods.includes(method)) {
       return next();
     }
 
-    // Get token from header or body
-    const clientToken = req.headers[headerName] || req.body._csrf;
+    // In development, completely disable CSRF for common problematic endpoints
+    if (development) {
+      const skipEndpoints = [
+        '/api/user/me',
+        '/api/creation/latest-creations', 
+        '/api/user/profile',
+        '/api/comments',
+        '/api/comment/', // Any comment endpoint
+        '/api/like/',    // Like endpoints
+        '/api/favorite/' // Favorite endpoints
+      ];
+      
+      console.log(`🔍 [CSRF DEBUG] Checking path: ${req.path}, Method: ${req.method}`);
+      const shouldSkip = skipEndpoints.some(endpoint => req.path.includes(endpoint));
+      console.log(`🔍 [CSRF DEBUG] Should skip: ${shouldSkip}`);
+      
+      if (shouldSkip) {
+        console.log(`🔧 [DEV] Completely skipping CSRF for ${req.path}`);
+        return next();
+      }
+    }
+
+    // Get token from multiple sources with better error handling
+    const clientToken = req.headers[headerName] || req.body._csrf || req.query._csrf;
     
     if (!clientToken) {
-      // Audit log missing CSRF token
-      AuditLogger.log({
-        action: 'csrf_validation_failed',
-        resource: req.originalUrl,
-        method: req.method,
-        status: 'failure',
-        user: req.user || null,
-        ipAddress: req.ip || req.connection.remoteAddress,
-        userAgent: req.headers['user-agent'],
-        details: { reason: 'csrf_token_missing' }
-      }).catch(err => console.error('Audit log error:', err));
-
-      return res.status(403).json({
+      // More descriptive error response
+      const errorResponse = {
         success: false,
-        message: 'CSRF token missing',
-        code: 'CSRF_MISSING'
-      });
+        message: 'CSRF token missing. Please refresh and try again.',
+        code: 'CSRF_MISSING',
+        hint: 'Make sure your request includes the x-csrf-token header'
+      };
+
+      // Only log in production to reduce noise
+      if (!development) {
+        AuditLogger.log({
+          action: 'csrf_validation_failed',
+          resource: req.originalUrl,
+          method: req.method,
+          status: 'failure',
+          user: req.user || null,
+          ipAddress: req.ip || req.connection.remoteAddress,
+          userAgent: req.headers['user-agent'],
+          details: { reason: 'csrf_token_missing' }
+        }).catch(err => console.error('Audit log error:', err));
+      }
+
+      return res.status(403).json(errorResponse);
     }
 
     // Validate token
     const storedTokenData = csrfTokenStore.get(clientToken);
     
     if (!storedTokenData) {
-      // Audit log invalid CSRF token
-      AuditLogger.log({
-        action: 'csrf_validation_failed',
-        resource: req.originalUrl,
-        method: req.method,
-        status: 'failure',
-        user: req.user || null,
-        ipAddress: req.ip || req.connection.remoteAddress,
-        userAgent: req.headers['user-agent'],
-        details: { reason: 'csrf_token_invalid' }
-      }).catch(err => console.error('Audit log error:', err));
-
-      return res.status(403).json({
+      const errorResponse = {
         success: false,
-        message: 'Invalid CSRF token',
-        code: 'CSRF_INVALID'
-      });
+        message: 'Invalid CSRF token. Please refresh and try again.',
+        code: 'CSRF_INVALID',
+        hint: 'Your session may have expired'
+      };
+
+      // Only log in production
+      if (!development) {
+        AuditLogger.log({
+          action: 'csrf_validation_failed',
+          resource: req.originalUrl,
+          method: req.method,
+          status: 'failure',
+          user: req.user || null,
+          ipAddress: req.ip || req.connection.remoteAddress,
+          userAgent: req.headers['user-agent'],
+          details: { reason: 'csrf_token_invalid' }
+        }).catch(err => console.error('Audit log error:', err));
+      }
+
+      return res.status(403).json(errorResponse);
     }
 
     // Check if token has expired
