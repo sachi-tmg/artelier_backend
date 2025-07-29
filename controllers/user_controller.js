@@ -45,7 +45,7 @@ const register = async (req, res) => {
       return res.status(409).json({ message: "Email already registered." });
     }
 
-    const hashedPassword = await bcrypt.hash(password, 12);
+    const hashedPassword = await bcrypt.hash(password, 10);
     const username = await generateUsername(email);
     const verificationToken = crypto.randomBytes(20).toString("hex");
     const verificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
