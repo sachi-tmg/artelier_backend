@@ -2,6 +2,7 @@ const Comment = require('../models/comment');
 const Creation = require('../models/creation');
 const Notification = require('../models/notification');
 const AuditLogger = require('../services/audit_logger');
+const InputSanitizer = require('../utils/sanitizer');
 
 exports.getComments = async (req, res) => {
     try {
@@ -42,6 +43,46 @@ exports.postComment = async (req, res) => {
             return res.status(400).json({ error: "Creation ID and comment text are required" });
         }
 
+        // Additional sanitization for comment content
+        const sanitizedComment = InputSanitizer.sanitizeText(comment, 500);
+        
+        // Check for empty comment after sanitization
+        if (!sanitizedComment.trim()) {
+            return res.status(400).json({ 
+                error: "Your comment could not be posted due to invalid content",
+                code: "INVALID_CONTENT"
+            });
+        }
+
+        // Detect and log potential security violations
+        if (InputSanitizer.containsXSS(comment)) {
+            await AuditLogger.log({
+                action: 'xss_attempt_in_comment',
+                resource: '/api/comments',
+                method: 'POST',
+                status: 'blocked',
+                user: { _id: userId, username: req.user.username, role: req.user.role },
+                ipAddress: req.ip || req.connection.remoteAddress,
+                userAgent: req.headers['user-agent'],
+                details: { originalComment: comment.substring(0, 100) }
+            });
+            
+            // Return error for XSS attempts
+            return res.status(400).json({ 
+                error: "Your comment could not be posted due to invalid content",
+                code: "INVALID_CONTENT"
+            });
+        }
+
+        // Check if content was significantly modified by sanitization
+        if (comment.length > sanitizedComment.length + 10) {
+            // Content was heavily sanitized, might contain invalid markup
+            return res.status(400).json({ 
+                error: "Your comment could not be posted due to invalid content",
+                code: "INVALID_CONTENT"
+            });
+        }
+
         const creation = await Creation.findOne({ creation_id: creationId });
         if (!creation) {
             return res.status(404).json({ error: "Creation not found" });
@@ -51,7 +92,7 @@ exports.postComment = async (req, res) => {
         const newComment = new Comment({
             creation_id: creation._id,
             creation_author: creation.userId,
-            comment,
+            comment: sanitizedComment, // Use sanitized comment
             commented_by: userId,
             isReply,
             parent: isReply ? parentId : null

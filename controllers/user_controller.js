@@ -8,6 +8,7 @@ const crypto = require('crypto');
 const mongoose = require('mongoose');
 const nodemailer = require('nodemailer');
 const { validatePassword } = require('../utils/password_validator');
+const InputSanitizer = require('../utils/sanitizer');
 const AuditLogger = require('../services/audit_logger');
 const pendingSignups = {};
 const speakeasy = require('speakeasy');

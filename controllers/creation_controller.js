@@ -2,6 +2,7 @@ const Creation = require("../models/creation");
 const User = require("../models/user"); 
 const jwt = require("jsonwebtoken");
 const { v4: uuidv4 } = require('uuid');
+const InputSanitizer = require('../utils/sanitizer');
 const AuditLogger = require('../services/audit_logger');
 
 // Moved verifyJWT here for completeness, assuming it's in the same file or imported

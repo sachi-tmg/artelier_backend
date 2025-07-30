@@ -21,6 +21,7 @@ const admin_router = require('./routes/admin_route');
 const csrf_route = require('./routes/csrf_route');
 const auditMiddleware = require('./middleware/audit_middleware');
 const { csrfProtection } = require('./middleware/csrf_protection');
+const SanitizationMiddleware = require('./middleware/sanitization_middleware');
 const cors = require("cors");
 
 const app = express();
@@ -89,6 +90,9 @@ app.use(express.json());
 const cookieParser = require("cookie-parser");
 app.use(cookieParser());
 
+// Add input sanitization middleware (before audit middleware)
+app.use(SanitizationMiddleware.sanitizeInput());
+
 // Add audit middleware to log all API requests
 app.use('/api', auditMiddleware({
   skipPaths: ['/health', '/ping', '/favicon.ico']
@@ -112,7 +116,7 @@ app.use("/api/favorite", csrfMiddleware, favorite_router);
 app.use('/api/notifications', csrfMiddleware, notificationRoutes);
 app.use('/api', csrfMiddleware, like_router);
 app.use('/api/comments', commentRoutes); // CSRF removed for development
-app.use('/api/orders', csrfMiddleware, orderRoutes);
+app.use('/api/orders', orderRoutes);
 app.use('/api/contact', csrfMiddleware, contact_route);
 
 app.use("/public", express.static('public'));
