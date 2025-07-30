@@ -23,38 +23,31 @@ const csrfProtection = (options = {}) => {
   return (req, res, next) => {
     const method = req.method.toUpperCase();
     
-    // COMPLETE DEVELOPMENT BYPASS - Remove this in production!
-    if (development && process.env.DISABLE_CSRF === 'true') {
-      console.log(`🚫 [DEV] CSRF completely disabled for ${req.method} ${req.path}`);
-      return next();
-    }
-    
-    // Skip CSRF for safe methods
+    // Skip CSRF for safe methods (GET, HEAD, OPTIONS)
     if (skipMethods.includes(method)) {
       return next();
     }
 
-    // In development, completely disable CSRF for common problematic endpoints
-    if (development) {
-      const skipEndpoints = [
-        '/api/user/me',
-        '/api/creation/latest-creations', 
-        '/api/user/profile',
-        '/api/comments',
-        '/api/comment/', // Any comment endpoint
-        '/api/like/',    // Like endpoints
-        '/api/favorite/',
-        '/api/orders/'
-      ];
-      
-      console.log(`🔍 [CSRF DEBUG] Checking path: ${req.path}, Method: ${req.method}`);
-      const shouldSkip = skipEndpoints.some(endpoint => req.path.includes(endpoint));
-      console.log(`🔍 [CSRF DEBUG] Should skip: ${shouldSkip}`);
-      
-      if (shouldSkip) {
-        console.log(`🔧 [DEV] Completely skipping CSRF for ${req.path}`);
-        return next();
+    // Only skip CSRF for specific read-only endpoints that don't change state
+    const readOnlyEndpoints = [
+      '/api/user/me',           // Getting user profile
+      '/api/creation/latest-creations',  // Reading creations
+      '/api/user/profile',      // Reading user profile  
+    ];
+    
+    const isReadOnly = readOnlyEndpoints.some(endpoint => 
+      req.path === endpoint || req.path.startsWith(endpoint)
+    );
+    
+    if (isReadOnly && method === 'GET') {
+      if (development) {
+        console.log(`� [CSRF] Skipping read-only endpoint: ${req.method} ${req.path}`);
       }
+      return next();
+    }
+
+    if (development) {
+      console.log(`� [CSRF DEBUG] Validating token for: ${req.method} ${req.path}`);
     }
 
     // Get token from multiple sources with better error handling
@@ -66,10 +59,17 @@ const csrfProtection = (options = {}) => {
         success: false,
         message: 'CSRF token missing. Please refresh and try again.',
         code: 'CSRF_MISSING',
-        hint: 'Make sure your request includes the x-csrf-token header'
+        hint: 'Make sure your request includes the x-csrf-token header',
+        path: req.path,
+        method: req.method
       };
 
-      // Only log in production to reduce noise
+      if (development) {
+        console.log(`❌ [CSRF] Missing token for ${req.method} ${req.path}`);
+        console.log(`💡 [CSRF] Add x-csrf-token header or get token from /api/csrf/token`);
+      }
+
+      // Log in production for security monitoring
       if (!development) {
         AuditLogger.log({
           action: 'csrf_validation_failed',
@@ -94,10 +94,17 @@ const csrfProtection = (options = {}) => {
         success: false,
         message: 'Invalid CSRF token. Please refresh and try again.',
         code: 'CSRF_INVALID',
-        hint: 'Your session may have expired'
+        hint: 'Your session may have expired',
+        path: req.path,
+        method: req.method
       };
 
-      // Only log in production
+      if (development) {
+        console.log(`❌ [CSRF] Invalid token for ${req.method} ${req.path}`);
+        console.log(`💡 [CSRF] Token not found in store. Get fresh token from /api/csrf/token`);
+      }
+
+      // Log in production for security monitoring
       if (!development) {
         AuditLogger.log({
           action: 'csrf_validation_failed',
@@ -118,6 +125,20 @@ const csrfProtection = (options = {}) => {
     if (Date.now() > storedTokenData.expires) {
       csrfTokenStore.delete(clientToken);
       
+      const errorResponse = {
+        success: false,
+        message: 'CSRF token expired',
+        code: 'CSRF_EXPIRED',
+        hint: 'Please get a new token and retry',
+        path: req.path,
+        method: req.method
+      };
+
+      if (development) {
+        console.log(`⏰ [CSRF] Expired token for ${req.method} ${req.path}`);
+        console.log(`💡 [CSRF] Get fresh token from /api/csrf/token`);
+      }
+      
       // Audit log expired CSRF token
       AuditLogger.log({
         action: 'csrf_token_expired',
@@ -130,11 +151,7 @@ const csrfProtection = (options = {}) => {
         details: { reason: 'csrf_token_expired' }
       }).catch(err => console.error('Audit log error:', err));
 
-      return res.status(403).json({
-        success: false,
-        message: 'CSRF token expired',
-        code: 'CSRF_EXPIRED'
-      });
+      return res.status(403).json(errorResponse);
     }
 
     // Validate session association (if user is authenticated)
@@ -158,8 +175,14 @@ const csrfProtection = (options = {}) => {
       });
     }
 
-    // Token is valid, remove it (one-time use)
-    csrfTokenStore.delete(clientToken);
+    // Token is valid, proceed with request
+    // Allow token reuse within expiry window
+    // Update last used timestamp for monitoring
+    storedTokenData.lastUsed = Date.now();
+    
+    if (development) {
+      console.log(`✅ [CSRF] Valid token for ${req.method} ${req.path}`);
+    }
     
     next();
   };

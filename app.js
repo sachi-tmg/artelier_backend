@@ -124,10 +124,6 @@ app.use("/public", express.static('public'));
 const port = process.env.PORT || 3000;
 const server = https.createServer(httpsOptions, app).listen(port, () => {
     console.log(`Server running at HTTPS://localhost:${port}`);
-    console.log(`🛡️  Helmet security headers active`);
-    console.log(`🔒 HTTPS enforced with HSTS`);
-    console.log(`🚫 Clickjacking protection enabled`);
-    console.log(`📝 Content Security Policy configured`);
 });
 
 
