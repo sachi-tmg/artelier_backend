@@ -89,6 +89,8 @@ const saveOrder = async (req, res) => {
 
         const savedOrder = await newOrder.save();
 
+        console.log('📝 [AUDIT] About to log order placement...');
+        
         // Audit log order placement
         await AuditLogger.logOrderAction(
             { _id: userId, username: req.user.username, role: req.user.role },
@@ -97,13 +99,25 @@ const saveOrder = async (req, res) => {
             req.ip || req.connection.remoteAddress,
             req.headers['user-agent'],
             {
+                orderId: savedOrder.orderId,
                 totalAmount,
                 paymentMethod,
-                paymentStatus,
+                paymentStatus: paymentStatus || 'unpaid',
                 deliveryOption,
-                itemCount: items.length
+                itemCount: items.length,
+                itemDetails: items.map(item => ({
+                    creationId: item._id,
+                    title: item.title,
+                    quantity: item.quantity || 1,
+                    price: item.price
+                })),
+                shippingCity: finalShippingAddress.city,
+                customerEmail: customerEmail,
+                orderTimestamp: new Date()
             }
         );
+        
+        console.log('✅ [AUDIT] Order placement logged successfully!');
 
         const creationIds = items.map(item => item._id); // assuming this is the custom creation_id
         const creations = await Creation.find(
@@ -133,6 +147,7 @@ console.log("Found creations for notification:", creations);
 
     } catch (error) {
         console.error('Error placing order:', error);
+        
         if (error.name === 'ValidationError') {
             const messages = Object.values(error.errors).map(err => err.message);
             return res.status(400).json({ message: messages.join(', ') });
@@ -144,6 +159,7 @@ console.log("Found creations for notification:", creations);
 const getOrderById = async (req, res) => {
   try {
     const { id } = req.params;
+    const userId = req.user?.userId;
 
     // Find by orderId field (custom string like ORD-...)
     const order = await Order.findOne({ orderId: id })
@@ -161,6 +177,57 @@ const getOrderById = async (req, res) => {
       return res.status(404).json({ message: "Order not found." });
     }
 
+    // Check if user is authorized to view this order (owner or admin)
+    const isOwner = order.user._id.toString() === userId;
+    const isAdmin = req.user?.role === 'admin';
+    
+    // Debug logging to see what's happening
+    console.log('🔍 [ORDER ACCESS DEBUG]');
+    console.log('Order user ID:', order.user._id.toString());
+    console.log('Current user ID:', userId);
+    console.log('User role:', req.user?.role);
+    console.log('Is owner?', isOwner);
+    console.log('Is admin?', isAdmin);
+    
+    if (!isOwner && !isAdmin) {
+      // Log unauthorized order access attempt
+      await AuditLogger.logOrderAction(
+        { _id: userId, username: req.user?.username, role: req.user?.role },
+        id,
+        'order_access_unauthorized',
+        req.ip || req.connection.remoteAddress,
+        req.headers['user-agent'],
+        {
+          orderId: id,
+          orderOwner: order.user._id.toString(),
+          attemptedBy: userId,
+          reason: 'unauthorized_access',
+          timestamp: new Date()
+        }
+      );
+      
+      return res.status(403).json({ message: "Access denied. You can only view your own orders." });
+    }
+
+    // Log successful order access
+    console.log('📝 [AUDIT] About to log order access...');
+    await AuditLogger.logOrderAction(
+      { _id: userId, username: req.user?.username, role: req.user?.role },
+      id,
+      'order_viewed',
+      req.ip || req.connection.remoteAddress,
+      req.headers['user-agent'],
+      {
+        orderId: id,
+        orderStatus: order.orderStatus,
+        orderAmount: order.totalAmount,
+        paymentStatus: order.paymentStatus,
+        viewedBy: isAdmin ? 'admin' : 'owner',
+        timestamp: new Date()
+      }
+    );
+    console.log('✅ [AUDIT] Order access logged successfully!');
+
     res.status(200).json(order);
   } catch (error) {
     console.error("Error fetching order by ID:", error);
@@ -171,11 +238,29 @@ const getOrderById = async (req, res) => {
 const getMyOrdersController = async (req, res) => {
   try {
     const userId = req.user.userId; // comes from your JWT verify middleware
+    const { page = 1, limit = 10 } = req.query;
 
     const orders = await Order.find({ user: userId })
       .sort({ createdAt: -1 })
       .populate("items.creationId", "title creation_id creationPicture price") // populates the creation reference
       .lean();
+
+    // Log successful order list access
+    await AuditLogger.logOrderAction(
+      { _id: userId, username: req.user.username, role: req.user.role },
+      null,
+      'orders_list_accessed',
+      req.ip || req.connection.remoteAddress,
+      req.headers['user-agent'],
+      {
+        orderCount: orders.length,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        totalOrdersFound: orders.length,
+        latestOrderDate: orders.length > 0 ? orders[0].createdAt : null,
+        timestamp: new Date()
+      }
+    );
 
     res.json({ orders });
   } catch (error) {

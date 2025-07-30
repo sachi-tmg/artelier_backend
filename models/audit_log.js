@@ -37,6 +37,11 @@ const auditLogSchema = new mongoose.Schema({
       'content_created', 'content_updated', 'content_deleted',
       'comment_posted', 'file_uploaded',
       
+      // Order management
+      'order_placed', 'order_viewed', 'order_updated', 'order_cancelled',
+      'order_creation_failed', 'order_access_failed', 'order_access_unauthorized',
+      'orders_list_accessed', 'order_status_updated',
+      
       // Security (only serious events)
       'suspicious_activity'
     ]

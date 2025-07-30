@@ -21,6 +21,11 @@ class AuditLogger {
     'content_created', 'content_updated', 'content_deleted',
     'comment_posted', 'file_uploaded',
     
+    // Order actions ✅ ADDED
+    'order_placed', 'order_viewed', 'order_updated', 'order_cancelled',
+    'order_creation_failed', 'order_access_failed', 'order_access_unauthorized',
+    'orders_list_accessed', 'order_status_updated',
+    
     // Security (only serious events)
     'suspicious_activity'
   ];
@@ -47,6 +52,17 @@ class AuditLogger {
     'content_deleted': 'Content Deleted',
     'comment_posted': 'Comment Posted',
     'file_uploaded': 'File Uploaded',
+    
+    // Orders ✅ ADDED
+    'order_placed': 'Order Placed',
+    'order_viewed': 'Order Viewed',
+    'order_updated': 'Order Updated',
+    'order_cancelled': 'Order Cancelled',
+    'order_creation_failed': 'Order Creation Failed',
+    'order_access_failed': 'Order Access Failed',
+    'order_access_unauthorized': 'Unauthorized Order Access',
+    'orders_list_accessed': 'Orders List Viewed',
+    'order_status_updated': 'Order Status Updated',
     
     // Admin
     'admin_action_performed': 'Admin Action',
@@ -81,8 +97,11 @@ class AuditLogger {
     try {
       // Skip technical/noise actions - only log important user actions
       if (!this.IMPORTANT_ACTIONS_ONLY.includes(action)) {
+        console.log(`🚫 [AUDIT SKIP] Action '${action}' not in whitelist, skipping...`);
         return; // Don't log unimportant actions
       }
+
+      console.log(`✅ [AUDIT PROCESS] Logging action '${action}' to MongoDB...`);
 
       const auditEntry = new AuditLog({
         userId: user?._id || user?.userId,
@@ -103,7 +122,8 @@ class AuditLogger {
         timestamp: new Date()
       });
 
-      await auditEntry.save();
+      const savedEntry = await auditEntry.save();
+      console.log(`🎉 [AUDIT SUCCESS] Saved audit log with ID: ${savedEntry._id}`);
       
       // Log critical security events to console for immediate attention
       if (status === 'failure' && this.isCriticalSecurityEvent(action)) {
@@ -112,7 +132,8 @@ class AuditLogger {
       
     } catch (error) {
       // Don't let audit logging failures break the main application
-      console.error('Failed to create audit log entry:', error);
+      console.error('❌ [AUDIT ERROR] Failed to create audit log entry:', error);
+      console.error('❌ [AUDIT ERROR] Details:', error.message);
     }
   }
 
@@ -262,15 +283,30 @@ class AuditLogger {
 
   static async logOrderAction(user, orderId, action, ipAddress, userAgent, details = null) {
     await this.log({
-      action: action, // 'order_placed', 'order_updated', etc.
-      resource: '/api/orders',
-      method: 'POST',
-      status: 'success',
+      action: action, // 'order_placed', 'order_viewed', 'order_updated', etc.
+      resource: orderId ? `/api/orders/${orderId}` : '/api/orders',
+      method: this.getMethodFromAction(action),
+      status: this.getStatusFromAction(action),
       user,
       ipAddress,
       userAgent,
       details: { orderId, ...details }
     });
+  }
+
+  // Helper method to determine HTTP method from action
+  static getMethodFromAction(action) {
+    if (action.includes('placed') || action.includes('creation')) return 'POST';
+    if (action.includes('viewed') || action.includes('accessed') || action.includes('list')) return 'GET';
+    if (action.includes('updated') || action.includes('status')) return 'PUT';
+    if (action.includes('cancelled') || action.includes('deleted')) return 'DELETE';
+    return 'POST'; // default
+  }
+
+  // Helper method to determine status from action
+  static getStatusFromAction(action) {
+    if (action.includes('failed') || action.includes('error') || action.includes('unauthorized')) return 'failure';
+    return 'success';
   }
 
   // Helper method to identify critical security events

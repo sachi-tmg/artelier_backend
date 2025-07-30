@@ -8,7 +8,7 @@ const { verifyJWT } = require('../controllers/creation_controller');
 // Apply the verifyJWT middleware here
 router.post('/', verifyJWT, saveOrder);
 router.get('/my', verifyJWT, getMyOrdersController);
-router.get('/:id', getOrderById);
+router.get('/:id', verifyJWT, getOrderById);  // ✅ Added missing JWT middleware!
 
 
 module.exports = router;

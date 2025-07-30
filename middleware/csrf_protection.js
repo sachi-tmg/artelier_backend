@@ -43,7 +43,8 @@ const csrfProtection = (options = {}) => {
         '/api/comments',
         '/api/comment/', // Any comment endpoint
         '/api/like/',    // Like endpoints
-        '/api/favorite/' // Favorite endpoints
+        '/api/favorite/',
+        '/api/orders/'
       ];
       
       console.log(`🔍 [CSRF DEBUG] Checking path: ${req.path}, Method: ${req.method}`);
