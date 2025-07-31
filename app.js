@@ -6,6 +6,7 @@ const path = require('path');
 
 const express = require("express");
 const helmet = require("helmet");
+const mongoSanitize = require('express-mongo-sanitize');
 const connectDB = require("./config/db");
 const user_router = require("./routes/user_route");
 const creation_router = require("./routes/creation_route");
@@ -87,6 +88,9 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.use(express.json());
 
+// NoSQL injection prevention
+app.use(mongoSanitize());
+
 const cookieParser = require("cookie-parser");
 app.use(cookieParser());
 
@@ -115,7 +119,7 @@ app.use("/api/payment", csrfMiddleware, payment_router);
 app.use("/api/favorite", csrfMiddleware, favorite_router);
 app.use('/api/notifications', csrfMiddleware, notificationRoutes);
 app.use('/api', csrfMiddleware, like_router);
-app.use('/api/comments', commentRoutes); // CSRF removed for development
+app.use('/api/comments', commentRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/contact', csrfMiddleware, contact_route);
 
