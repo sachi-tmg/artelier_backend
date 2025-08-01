@@ -27,6 +27,15 @@ const cors = require("cors");
 
 const app = express();
 
+const corsOptions = {
+    origin: "https://localhost:5173",
+    credentials: true,
+    optionSuccessStatus: 200,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-csrf-token'],
+};
+
+app.use(cors(corsOptions));
 connectDB();
 
 // Helmet security configuration - protecting against common web vulnerabilities
@@ -77,19 +86,17 @@ const httpsOptions = {
   cert: fs.readFileSync('C:/Users/sachi/certs/localhost-cert.pem')
 };
 
-const corsOptions = {
-    origin: "https://localhost:5173",
-    credentials: true,
-    optionSuccessStatus: 200,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'x-csrf-token'],
-};
 
-app.use(cors(corsOptions));
 app.use(express.json());
 
 // NoSQL injection prevention
-app.use(mongoSanitize());
+app.use(mongoSanitize({
+  replaceWith: '_',
+  allowDots: false,
+  onSanitize: ({ req, key }) => {
+    console.warn(`NoSQL injection blocked: ${key} from ${req.ip}`);
+  }
+}));
 
 const cookieParser = require("cookie-parser");
 app.use(cookieParser());
