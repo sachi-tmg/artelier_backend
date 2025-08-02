@@ -7,10 +7,10 @@ const mongoose = require('mongoose');
 // POST /api/orders
 const saveOrder = async (req, res) => { 
     try {
-    console.log('[CONTROLLER] Request user:', req.user);
-    console.log('[CONTROLLER] Request body:', req.body);
-    console.log('[CONTROLLER] Payment method:', req.body.paymentMethod);
-    console.log('[CONTROLLER] Payment status from frontend:', req.body.paymentStatus);
+    //console.log('[CONTROLLER] Request user:', req.user);
+    //console.log('[CONTROLLER] Request body:', req.body);
+    //console.log('[CONTROLLER] Payment method:', req.body.paymentMethod);
+    //console.log('[CONTROLLER] Payment status from frontend:', req.body.paymentStatus);
         const userId = req.user.userId;
 
         const {
@@ -89,7 +89,7 @@ const saveOrder = async (req, res) => {
 
         const savedOrder = await newOrder.save();
 
-        console.log('📝 [AUDIT] About to log order placement...');
+        //console.log('📝 [AUDIT] About to log order placement...');
         
         // Audit log order placement
         await AuditLogger.logOrderAction(
@@ -117,14 +117,14 @@ const saveOrder = async (req, res) => {
             }
         );
         
-        console.log('✅ [AUDIT] Order placement logged successfully!');
+        //console.log('✅ [AUDIT] Order placement logged successfully!');
 
         const creationIds = items.map(item => item._id); // assuming this is the custom creation_id
         const creations = await Creation.find(
         { _id: { $in: creationIds } },
         "userId creation_id"
         );
-console.log("Found creations for notification:", creations);
+//console.log("Found creations for notification:", creations);
 
         for (const creation of creations) {
             // Prevent sending notification to yourself (buyer == seller)
@@ -182,12 +182,12 @@ const getOrderById = async (req, res) => {
     const isAdmin = req.user?.role === 'admin';
     
     // Debug logging to see what's happening
-    console.log('🔍 [ORDER ACCESS DEBUG]');
-    console.log('Order user ID:', order.user._id.toString());
-    console.log('Current user ID:', userId);
-    console.log('User role:', req.user?.role);
-    console.log('Is owner?', isOwner);
-    console.log('Is admin?', isAdmin);
+    //console.log('🔍 [ORDER ACCESS DEBUG]');
+    //console.log('Order user ID:', order.user._id.toString());
+    //console.log('Current user ID:', userId);
+    //console.log('User role:', req.user?.role);
+    //console.log('Is owner?', isOwner);
+    //console.log('Is admin?', isAdmin);
     
     if (!isOwner && !isAdmin) {
       // Log unauthorized order access attempt
@@ -210,7 +210,7 @@ const getOrderById = async (req, res) => {
     }
 
     // Log successful order access
-    console.log('📝 [AUDIT] About to log order access...');
+    //console.log('📝 [AUDIT] About to log order access...');
     await AuditLogger.logOrderAction(
       { _id: userId, username: req.user?.username, role: req.user?.role },
       id,
@@ -226,7 +226,7 @@ const getOrderById = async (req, res) => {
         timestamp: new Date()
       }
     );
-    console.log('✅ [AUDIT] Order access logged successfully!');
+    //console.log('✅ [AUDIT] Order access logged successfully!');
 
     res.status(200).json(order);
   } catch (error) {

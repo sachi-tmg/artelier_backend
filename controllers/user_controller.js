@@ -68,15 +68,15 @@ const register = async (req, res) => {
     const verificationUrl = `${process.env.FRONTEND_URL}/verify-email?token=${verificationToken}&email=${encodeURIComponent(email)}`;
 
     try {
-      await sendVerificationEmail(email, verificationUrl); // ✉️ Send first
+      await sendVerificationEmail(email, verificationUrl); // Send first
     } catch (emailError) {
-      console.error("❌ Email failed to send:", emailError.message);
+      console.error("Email failed to send:", emailError.message);
       return res.status(500).json({
         message: "Failed to send verification email. Please try again later."
       });
     }
 
-    await newUser.save(); // ✅ Save only after email sent
+    await newUser.save(); // Save only after email sent
 
     // Audit log account creation
     await AuditLogger.logAccountCreation(
@@ -85,15 +85,13 @@ const register = async (req, res) => {
       req.headers['user-agent'],
       true
     );
-
     return res.status(201).json({
       success: true,
       message: "Verification email sent. Please check your inbox to complete registration."
     });
 
   } catch (err) {
-    console.error("🚨 Registration Error:", err.message);
-    
+    console.error(" Registration Error:", err.message);
     // Audit log failed registration
     await AuditLogger.logAccountCreation(
       null,
@@ -147,7 +145,7 @@ const sendVerificationEmail = async (email, verificationUrl) => {
     };
 
     const info = await transporter.sendMail(mailOptions);
-    console.log(`Verification email sent to ${email}:`, info.messageId);
+    //console.log(`Verification email sent to ${email}:`, info.messageId);
     return true;
   } catch (err) {
     console.error("Failed to send verification email:", err);
@@ -364,7 +362,6 @@ const login = async (req, res) => {
       return res.status(403).json({ success: false, message: "Please verify your email before logging in." });
     }
 
-    // ✅ LOGIN SUCCESSFUL — reset counters
     await User.updateOne({ email }, { $set: { loginAttempts: 0, loginLockUntil: null } });
     await LoginAttempt.create({ email, ip, successful: true });
 
@@ -424,7 +421,6 @@ const verifyMfa = async (req, res) => {
 
     const isCodeMatch = user.mfaOtp === code;
     const isExpired = Date.now() > user.mfaOtpExpires;
-
 
     if (!isCodeMatch || isExpired) {
       // Log failed MFA attempt
@@ -519,12 +515,6 @@ const findProfile = async (req, res) => {
         // Remove the large arrays from the final response if only counts are needed
         delete userObject.followers;
         delete userObject.following;
-
-        // In your original findProfile, you had regularUser schema.
-        // If 'bio', 'profilePicture', 'link', 'account_info' are directly on the User model
-        // (as per your provided userSchema), then the 'regularUser' sub-object might not be needed.
-        // I'm assuming for the follow controller that these are directly on the User model.
-        // If you *still* use a separate RegularUser model, you'd need to adjust accordingly.
 
         return res.status(200).json({
             user: userObject
@@ -907,74 +897,6 @@ const updateProfile = async (req, res) => {
         res.status(500).json({ message: "Error updating profile", error: error.message });
     }
 };
-
-
-// const updatePassword = async (req, res) => {
-//   try {
-//     const { currentPassword, newPassword } = req.body;
-//     const userId = req.user.userId;
-
-//     // Basic validation
-//     if (!currentPassword || !newPassword) {
-//       return res.status(400).json({ message: "Current password and new password are required" });
-//     }
-
-//     // Enhanced password validation for new password
-//     const passwordValidation = validatePassword(newPassword);
-//     if (!passwordValidation.isValid) {
-//       return res.status(400).json({ 
-//         message: "New password does not meet security requirements.",
-//         errors: passwordValidation.errors,
-//         strength: passwordValidation.strength
-//       });
-//     }
-
-//     const user = await User.findById(userId).select('+password');
-//     if (!user) {
-//       return res.status(404).json({ message: "User not found" });
-//     }
-
-//     const isMatch = await bcrypt.compare(currentPassword, user.password);
-//     if (!isMatch) {
-//       return res.status(400).json({ message: "Current password is incorrect" });
-//     }
-
-//     // Check if new password is the same as current password
-//     const isSamePassword = await bcrypt.compare(newPassword, user.password);
-//     if (isSamePassword) {
-//       return res.status(400).json({ message: "New password must be different from current password" });
-//     }
-
-//     const hashedPassword = await bcrypt.hash(newPassword, 10);
-//     user.password = hashedPassword;
-//     await user.save();
-
-//     // Audit log password change
-//     await AuditLogger.logPasswordChange(
-//       { _id: user._id, username: user.username, role: user.role },
-//       req.ip || req.connection.remoteAddress,
-//       req.headers['user-agent'],
-//       true
-//     );
-
-//     res.status(200).json({ 
-//       success: true, 
-//       message: "Password updated successfully",
-//       passwordStrength: passwordValidation.strength
-//     });
-//   } catch (error) {
-//     // Audit log failed password change
-//     await AuditLogger.logPasswordChange(
-//       { _id: req.user.userId, username: req.user.username, role: req.user.role },
-//       req.ip || req.connection.remoteAddress,
-//       req.headers['user-agent'],
-//       false,
-//       error.message
-//     );
-
-//     res.status(500).json({ message: "Error updating password", error: error.message });
-//   }
-// };
 
 const updatePassword = async (req, res) => {
   try {
@@ -1461,11 +1383,11 @@ const resetPassword = async (req, res) => {
     const normalizedEmail = email.toLowerCase().trim();
 
     // Debug logging
-    console.log('Reset password request:', { 
-      email: normalizedEmail,
-      token,
-      time: new Date() 
-    });
+    // console.log('Reset password request:', { 
+    //   email: normalizedEmail,
+    //   token,
+    //   time: new Date() 
+    // });
 
     // Validate inputs
     if (!token || !email || !newPassword) {
@@ -1492,11 +1414,11 @@ const resetPassword = async (req, res) => {
     if (!user) {
       // More detailed error logging
       const existingUser = await User.findOne({ email: normalizedEmail });
-      console.log('User exists:', !!existingUser);
+      //console.log('User exists:', !!existingUser);
       if (existingUser) {
-        console.log('Token match:', existingUser.passwordResetToken === token);
-        console.log('Token expiry:', existingUser.passwordResetExpires);
-        console.log('Current time:', new Date());
+        //console.log('Token match:', existingUser.passwordResetToken === token);
+        //console.log('Token expiry:', existingUser.passwordResetExpires);
+        //console.log('Current time:', new Date());
       }
       
       return res.status(400).json({ 
@@ -1598,7 +1520,7 @@ const sendOtpEmail = async (email, otp, purpose = "login") => {
     };
 
     await transporter.sendMail(mailOptions);
-    console.log(`OTP email sent to ${email} for ${purpose}`);
+    //console.log(`OTP email sent to ${email} for ${purpose}`);
     return true;
   } catch (err) {
     console.error("Failed to send OTP email:", err);
@@ -1626,7 +1548,7 @@ const sendSignupOtp = async (req, res) => {
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     const otpExpires = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
 
-    // Store in pendingSignups (in-memory for now - consider Redis in production)
+    // Store in pendingSignups 
     pendingSignups[email] = {
       otp,
       otpExpires,
@@ -1691,7 +1613,7 @@ const verifySignupOtp = async (req, res) => {
       email,
       password: hashedPassword,
       username,
-      isVerified: true // Since we verified via OTP
+      isVerified: true
     });
 
     await newUser.save();

@@ -121,7 +121,15 @@ const updateUser = async (req, res) => {
     const updates = {};
     if (role !== undefined) updates.role = role;
     if (isVerified !== undefined) updates.isVerified = isVerified;
-    if (isBanned !== undefined) updates.isBanned = isBanned;
+    if (isBanned !== undefined) {
+      updates.isBanned = isBanned;
+
+      // Reset loginAttempts and lock if unbanning
+      if (isBanned === false) {
+        updates.loginAttempts = 0;
+        updates.loginLockUntil = null;
+      }
+    }
 
     const user = await User.findByIdAndUpdate(
       userId,
@@ -147,6 +155,7 @@ const updateUser = async (req, res) => {
     });
   }
 };
+
 
 // Delete user
 const deleteUser = async (req, res) => {

@@ -222,7 +222,7 @@ const searchCreations = async (req, res) => {
     let { query, tag, page } = req.body;
     let maxLimit = 5;
 
-    console.log("Backend: searchCreations controller received:", { query, tag, page });
+    //console.log("Backend: searchCreations controller received:", { query, tag, page });
 
     let findQuery = { draft: false }; // Base query: only published creations
 
@@ -251,7 +251,7 @@ const searchCreations = async (req, res) => {
         }
     }
     
-    console.log("Backend: MongoDB findQuery constructed:", JSON.stringify(findQuery, null, 2));
+    //console.log("Backend: MongoDB findQuery constructed:", JSON.stringify(findQuery, null, 2));
 
     try {
         const creations = await Creation.find(findQuery)
@@ -280,7 +280,7 @@ const searchCreations = async (req, res) => {
 
         const totalDocs = await Creation.countDocuments(findQuery);
 
-        console.log(`Backend: Found ${creations.length} creations. Total docs matching query: ${totalDocs}`);
+        //console.log(`Backend: Found ${creations.length} creations. Total docs matching query: ${totalDocs}`);
         
         return res.status(200).json({ creations: formattedCreations, totalDocs });
     } catch (e) {
@@ -292,7 +292,7 @@ const searchCreations = async (req, res) => {
 const countSearchCreations = async (req, res) => {
     let { query, tag } = req.body;
 
-    console.log("Backend: countSearchCreations controller received:", { query, tag });
+    //console.log("Backend: countSearchCreations controller received:", { query, tag });
 
     let findQuery = { draft: false };
 
@@ -320,11 +320,11 @@ const countSearchCreations = async (req, res) => {
         }
     }
 
-    console.log("Backend: MongoDB countQuery constructed:", JSON.stringify(findQuery, null, 2));
+    //console.log("Backend: MongoDB countQuery constructed:", JSON.stringify(findQuery, null, 2));
 
     try {
         const count = await Creation.countDocuments(findQuery);
-        console.log(`Backend: Counted ${count} documents for search.`);
+        //console.log(`Backend: Counted ${count} documents for search.`);
         return res.status(200).json({ count });
     } catch (e) {
         console.error("Backend: Error counting search creations:", e.message, e.stack);

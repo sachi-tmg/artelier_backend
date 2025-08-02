@@ -141,7 +141,7 @@ class SanitizationMiddleware {
         
         // Log original request for debugging (in development)
         if (process.env.NODE_ENV === 'development') {
-          console.log(`🧹 [SANITIZE] Processing ${req.method} ${req.path}`);
+          //console.log(`[SANITIZE] Processing ${req.method} ${req.path}`);
         }
         
         // Sanitize request body
@@ -386,7 +386,7 @@ class SanitizationMiddleware {
     }
     
     if (changes.length > 0) {
-      console.log(`🧹 [SANITIZE] Changes made to ${type} in ${req.path}:`, changes);
+      //console.log(`🧹 [SANITIZE] Changes made to ${type} in ${req.path}:`, changes);
     }
   }
 }

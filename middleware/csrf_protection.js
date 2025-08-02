@@ -41,13 +41,13 @@ const csrfProtection = (options = {}) => {
     
     if (isReadOnly && method === 'GET') {
       if (development) {
-        console.log(`� [CSRF] Skipping read-only endpoint: ${req.method} ${req.path}`);
+        //console.log(`� [CSRF] Skipping read-only endpoint: ${req.method} ${req.path}`);
       }
       return next();
     }
 
     if (development) {
-      console.log(`� [CSRF DEBUG] Validating token for: ${req.method} ${req.path}`);
+      //console.log(`� [CSRF DEBUG] Validating token for: ${req.method} ${req.path}`);
     }
 
     // Get token from multiple sources with better error handling
@@ -65,8 +65,8 @@ const csrfProtection = (options = {}) => {
       };
 
       if (development) {
-        console.log(`❌ [CSRF] Missing token for ${req.method} ${req.path}`);
-        console.log(`💡 [CSRF] Add x-csrf-token header or get token from /api/csrf/token`);
+        //console.log(`[CSRF] Missing token for ${req.method} ${req.path}`);
+        //console.log(`[CSRF] Add x-csrf-token header or get token from /api/csrf/token`);
       }
 
       // Log in production for security monitoring
@@ -100,8 +100,8 @@ const csrfProtection = (options = {}) => {
       };
 
       if (development) {
-        console.log(`❌ [CSRF] Invalid token for ${req.method} ${req.path}`);
-        console.log(`💡 [CSRF] Token not found in store. Get fresh token from /api/csrf/token`);
+        //console.log(`❌ [CSRF] Invalid token for ${req.method} ${req.path}`);
+        //console.log(`💡 [CSRF] Token not found in store. Get fresh token from /api/csrf/token`);
       }
 
       // Log in production for security monitoring
@@ -135,8 +135,8 @@ const csrfProtection = (options = {}) => {
       };
 
       if (development) {
-        console.log(`⏰ [CSRF] Expired token for ${req.method} ${req.path}`);
-        console.log(`💡 [CSRF] Get fresh token from /api/csrf/token`);
+        //console.log(`⏰ [CSRF] Expired token for ${req.method} ${req.path}`);
+        //console.log(`💡 [CSRF] Get fresh token from /api/csrf/token`);
       }
       
       // Audit log expired CSRF token
@@ -181,7 +181,7 @@ const csrfProtection = (options = {}) => {
     storedTokenData.lastUsed = Date.now();
     
     if (development) {
-      console.log(`✅ [CSRF] Valid token for ${req.method} ${req.path}`);
+      //console.log(`✅ [CSRF] Valid token for ${req.method} ${req.path}`);
     }
     
     next();

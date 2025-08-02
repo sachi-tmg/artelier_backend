@@ -1,4 +1,3 @@
-// utils/sanitizer.js
 const sanitizeHtml = require('sanitize-html');
 const validator = require('validator');
 

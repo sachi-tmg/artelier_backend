@@ -4,20 +4,20 @@ const { getEsewaPaymentHash, verifyEsewaPayment } = require("../services/esewa_s
 const Payment = require("../models/payment");
 const { verifyJWT } = require("../controllers/creation_controller");
 
-console.log("--- Loading paymentRoutes.js ---"); // Add this
+//console.log("--- Loading paymentRoutes.js ---"); // Add this
 
 // Initialize eSewa payment
 router.post("/initialize-esewa", verifyJWT, async (req, res) => { // <-- Add verifyJWT here
-    console.log("Backend: /api/payment/initialize-esewa POST hit!");
-    console.log("Backend: Request body:", req.body);
+    //console.log("Backend: /api/payment/initialize-esewa POST hit!");
+    //console.log("Backend: Request body:", req.body);
     // Now you can access user ID from req.user
     const userIdFromToken = req.user.userId; // Assuming your JWT payload has an 'id' field for the user
-    console.log("Backend: User ID from token:", userIdFromToken); // Verify it's not undefined
+    //console.log("Backend: User ID from token:", userIdFromToken); // Verify it's not undefined
 
     try {
         const { amount, orderId } = req.body; // Remove userId from destructuring, use from token
 
-        console.log("Backend: Attempting to create Payment record...");
+        //console.log("Backend: Attempting to create Payment record...");
         const payment = await Payment.create({
             transactionId: `INIT-${Date.now()}`,
             amount: amount,
@@ -26,7 +26,7 @@ router.post("/initialize-esewa", verifyJWT, async (req, res) => { // <-- Add ver
             orderReference: orderId,
             user: userIdFromToken, // Use userId from token
         });
-        console.log("Backend: Payment record created:", payment);
+        //console.log("Backend: Payment record created:", payment);
 
       // Generate eSewa payment data
       const paymentData = await getEsewaPaymentHash({
@@ -60,7 +60,7 @@ router.post("/initialize-esewa", verifyJWT, async (req, res) => { // <-- Add ver
 
 // Verify eSewa payment (callback)
 router.post("/verify-esewa", async (req, res) => {
-    console.log("eSewa verification endpoint hit");
+    //console.log("eSewa verification endpoint hit");
 
     const { data, paymentId } = req.query; // `paymentId` here is crucial for finding the correct record
     const FRONTEND_ORIGIN = process.env.FRONTEND_URL || "https://localhost:5173";

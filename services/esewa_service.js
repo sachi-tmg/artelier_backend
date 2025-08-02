@@ -38,8 +38,8 @@ async function verifyEsewaPayment(encodedData) {
       .update(data)
       .digest("base64");
 
-    console.log(hash);
-    console.log(decodedData.signature);
+    //console.log(hash);
+    //console.log(decodedData.signature);
     let reqOptions = {
       url: `${process.env.ESEWA_GATEWAY_URL}/api/epay/transaction/status/?product_code=${process.env.ESEWA_PRODUCT_CODE}&total_amount=${decodedData.total_amount}&transaction_uuid=${decodedData.transaction_uuid}`,
       method: "GET",

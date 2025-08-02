@@ -50,7 +50,7 @@ app.use(helmet({
       scriptSrc: ["'self'"],
       objectSrc: ["'none'"],
       baseUri: ["'self'"],
-      connectSrc: ["'self'", "https://localhost:5173", "https://localhost:3000"], // Allow connections to your frontend and backend
+      connectSrc: ["'self'", "https://localhost:5173", "https://localhost:3000"], // Allow connections to frontend and backend
       frameSrc: ["'none'"],
     },
   },

@@ -97,11 +97,11 @@ class AuditLogger {
     try {
       // Skip technical/noise actions - only log important user actions
       if (!this.IMPORTANT_ACTIONS_ONLY.includes(action)) {
-        console.log(`🚫 [AUDIT SKIP] Action '${action}' not in whitelist, skipping...`);
+        //console.log(`🚫 [AUDIT SKIP] Action '${action}' not in whitelist, skipping...`);
         return; // Don't log unimportant actions
       }
 
-      console.log(`✅ [AUDIT PROCESS] Logging action '${action}' to MongoDB...`);
+      //console.log(`✅ [AUDIT PROCESS] Logging action '${action}' to MongoDB...`);
 
       const auditEntry = new AuditLog({
         userId: user?._id || user?.userId,
@@ -123,7 +123,7 @@ class AuditLogger {
       });
 
       const savedEntry = await auditEntry.save();
-      console.log(`🎉 [AUDIT SUCCESS] Saved audit log with ID: ${savedEntry._id}`);
+      //console.log(`🎉 [AUDIT SUCCESS] Saved audit log with ID: ${savedEntry._id}`);
       
       // Log critical security events to console for immediate attention
       if (status === 'failure' && this.isCriticalSecurityEvent(action)) {

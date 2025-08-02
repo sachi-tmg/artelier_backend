@@ -7,7 +7,7 @@ exports.toggleLike = async (req, res) => {
     const userId = req.user.userId;
     const { creationId } = req.body;
 
-    // console.log('[CONTROLLER DEBUG] toggleLike started', {
+    // //console.log('[CONTROLLER DEBUG] toggleLike started', {
     //   userId,
     //   creationId
     // });
@@ -19,7 +19,7 @@ exports.toggleLike = async (req, res) => {
     // CHANGE HERE: Find by creation_id instead of _id
     const creation = await Creation.findOne({ creation_id: creationId });
     
-    // console.log('[CONTROLLER DEBUG] Found creation:', creation ? creation.creation_id : 'null');
+    // //console.log('[CONTROLLER DEBUG] Found creation:', creation ? creation.creation_id : 'null');
     
     if (!creation) {
       return res.status(404).json({ error: "Creation not found" });
@@ -82,7 +82,7 @@ exports.checkLikeStatus = async (req, res) => {
     const userId = req.user.userId;
     const { creationId } = req.params;
 
-    // console.log('[DEBUG] Checking like status for:', {
+    // //console.log('[DEBUG] Checking like status for:', {
     //   userId,
     //   creationId
     // });

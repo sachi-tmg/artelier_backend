@@ -6,70 +6,70 @@ const Creation = require('../models/creation');
 
 // Function to toggle a creation in user's favorites
 exports.toggleFavorite = async (req, res) => {
-    // console.log('[toggleFavorite] Request received');
-    // console.log('[toggleFavorite] Headers:', req.headers);
-    // console.log('[toggleFavorite] Body:', req.body);
+    // //console.log('[toggleFavorite] Request received');
+    // //console.log('[toggleFavorite] Headers:', req.headers);
+    // //console.log('[toggleFavorite] Body:', req.body);
     
     const userId = req.user.userId; // Assuming userId is populated from JWT
     const { creationId } = req.body; // The _id of the creation
 
-    // console.log('[toggleFavorite] userId:', userId);
-    // console.log('[toggleFavorite] creationId:', creationId);
+    // //console.log('[toggleFavorite] userId:', userId);
+    // //console.log('[toggleFavorite] creationId:', creationId);
 
     if (!creationId) {
-        // console.log('[toggleFavorite] Error: Creation ID is required');
+        // //console.log('[toggleFavorite] Error: Creation ID is required');
         return res.status(400).json({ message: 'Creation ID is required.' });
     }
 
     // Validate creationId format early
     if (!mongoose.Types.ObjectId.isValid(creationId)) {
-        // console.log('[toggleFavorite] Error: Invalid Creation ID format');
+        // //console.log('[toggleFavorite] Error: Invalid Creation ID format');
         return res.status(400).json({ message: 'Invalid Creation ID format.' });
     }
 
     try {
-        // console.log('[toggleFavorite] Looking for user:', userId);
+        // //console.log('[toggleFavorite] Looking for user:', userId);
         const user = await User.findById(userId);
         if (!user) {
-            // console.log('[toggleFavorite] Error: User not found');
+            // //console.log('[toggleFavorite] Error: User not found');
             return res.status(404).json({ message: 'User not found.' });
         }
 
-        // console.log('[toggleFavorite] Looking for creation:', creationId);
+        // //console.log('[toggleFavorite] Looking for creation:', creationId);
         const creation = await Creation.findById(creationId);
         if (!creation) {
-            // console.log('[toggleFavorite] Error: Creation not found');
+            // //console.log('[toggleFavorite] Error: Creation not found');
             return res.status(404).json({ message: 'Creation not found.' });
         }
 
         const creationObjectId = new mongoose.Types.ObjectId(creationId);
-        // console.log('[toggleFavorite] Creation ObjectId:', creationObjectId);
+        // //console.log('[toggleFavorite] Creation ObjectId:', creationObjectId);
 
         // Correctly check if the creationObjectId is in the favorites array
         const isCurrentlyFavorite = user.favorites.some(favId => favId.equals(creationObjectId));
-        // console.log('[toggleFavorite] Current favorite status:', isCurrentlyFavorite);
+        // //console.log('[toggleFavorite] Current favorite status:', isCurrentlyFavorite);
 
         let message;
         let isFavoriteStatus;
 
         if (isCurrentlyFavorite) {
             // Remove from favorites
-            // console.log('[toggleFavorite] Removing from favorites');
+            // //console.log('[toggleFavorite] Removing from favorites');
             user.favorites.pull(creationObjectId);
             message = 'Creation removed from favorites.';
             isFavoriteStatus = false;
         } else {
             // Add to favorites
-            // console.log('[toggleFavorite] Adding to favorites');
+            // //console.log('[toggleFavorite] Adding to favorites');
             user.favorites.push(creationObjectId);
             message = 'Creation added to favorites.';
             isFavoriteStatus = true;
         }
 
-        // console.log('[toggleFavorite] Saving user with updated favorites');
+        // //console.log('[toggleFavorite] Saving user with updated favorites');
         await user.save();
         
-        // console.log('[toggleFavorite] Successfully updated favorites');
+        // //console.log('[toggleFavorite] Successfully updated favorites');
         res.status(200).json({
             success: true,
             message,
@@ -87,18 +87,18 @@ exports.toggleFavorite = async (req, res) => {
 
 // Function to get a user's favorite creations
 exports.getFavorites = async (req, res) => {
-    // console.log('[getFavorites] Request received');
+    // //console.log('[getFavorites] Request received');
     const userId = req.user.userId;
 
-    // console.log('[getFavorites] userId:', userId);
+    // //console.log('[getFavorites] userId:', userId);
 
     if (!userId) {
-        // console.log('[getFavorites] Error: User ID not provided');
+        // //console.log('[getFavorites] Error: User ID not provided');
         return res.status(401).json({ message: 'Unauthorized: User ID not provided.' });
     }
 
     try {
-        // console.log('[getFavorites] Looking for user with populated favorites');
+        // //console.log('[getFavorites] Looking for user with populated favorites');
         const user = await User.findById(userId).populate({
             path: 'favorites',
             select: '_id creation_id title creationPicture category price forSale activity.likeCount',
@@ -109,7 +109,7 @@ exports.getFavorites = async (req, res) => {
         });
 
         if (!user) {
-            // console.log('[getFavorites] User not found, returning empty list');
+            // //console.log('[getFavorites] User not found, returning empty list');
             return res.status(200).json({
                 success: true,
                 favorites: [],
@@ -117,9 +117,9 @@ exports.getFavorites = async (req, res) => {
             });
         }
 
-        // console.log('[getFavorites] Raw favorites:', user.favorites);
+        // //console.log('[getFavorites] Raw favorites:', user.favorites);
         const favoriteCreations = user.favorites.filter(c => c !== null);
-        // console.log('[getFavorites] Filtered favorites:', favoriteCreations);
+        // //console.log('[getFavorites] Filtered favorites:', favoriteCreations);
 
         res.status(200).json({
             success: true,
@@ -137,40 +137,40 @@ exports.getFavorites = async (req, res) => {
 
 // Function to check if a specific creation is favorited by the current user
 exports.checkFavoriteStatus = async (req, res) => {
-    // console.log('[checkFavoriteStatus] Request received');
-    // console.log('[checkFavoriteStatus] Params:', req.params);
+    // //console.log('[checkFavoriteStatus] Request received');
+    // //console.log('[checkFavoriteStatus] Params:', req.params);
     
     const userId = req.user.userId;
     const { creationId } = req.params;
 
-    // console.log('[checkFavoriteStatus] userId:', userId);
-    // console.log('[checkFavoriteStatus] creationId:', creationId);
+    // //console.log('[checkFavoriteStatus] userId:', userId);
+    // //console.log('[checkFavoriteStatus] creationId:', creationId);
 
     if (!userId) {
-        // console.log('[checkFavoriteStatus] Error: User ID not provided');
+        // //console.log('[checkFavoriteStatus] Error: User ID not provided');
         return res.status(401).json({ message: 'Unauthorized: User ID not provided.' });
     }
     if (!creationId) {
-        // console.log('[checkFavoriteStatus] Error: Creation ID is required');
+        // //console.log('[checkFavoriteStatus] Error: Creation ID is required');
         return res.status(400).json({ message: 'Creation ID is required.' });
     }
     if (!mongoose.Types.ObjectId.isValid(creationId)) {
-        // console.log('[checkFavoriteStatus] Error: Invalid Creation ID format');
+        // //console.log('[checkFavoriteStatus] Error: Invalid Creation ID format');
         return res.status(400).json({ message: 'Invalid Creation ID format.' });
     }
 
     try {
-        console.log('[checkFavoriteStatus] Looking for user:', userId);
+        ////console.log('[checkFavoriteStatus] Looking for user:', userId);
         const user = await User.findById(userId);
         if (!user) {
-            // console.log('[checkFavoriteStatus] User not found, returning isFavorite: false');
+            // //console.log('[checkFavoriteStatus] User not found, returning isFavorite: false');
             return res.status(200).json({ isFavorite: false, message: 'User not found.' });
         }
 
         const creationObjectId = new mongoose.Types.ObjectId(creationId);
-        // console.log('[checkFavoriteStatus] Checking if creation is in favorites');
+        // //console.log('[checkFavoriteStatus] Checking if creation is in favorites');
         const isFavorite = user.favorites.some(favId => favId.equals(creationObjectId));
-        // console.log('[checkFavoriteStatus] isFavorite:', isFavorite);
+        // //console.log('[checkFavoriteStatus] isFavorite:', isFavorite);
 
         res.status(200).json({ isFavorite });
 
